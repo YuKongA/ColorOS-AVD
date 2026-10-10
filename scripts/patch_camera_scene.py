@@ -1,4 +1,4 @@
-"""Enable Xiaomi camera metadata on the pinned AVD virtual scene provider."""
+"""Enable ColorOS camera metadata and zoom on the pinned AVD scene provider."""
 import hashlib
 from pathlib import Path
 import struct
@@ -16,7 +16,7 @@ CPP = '2267f93b8b3c9d1967f1833d5f71c7312213c43bb291250cf772800763037fb9'
 def patch(data):
     """Retain all ABI addresses and RELRO while adding the private dependency.
 
-    The main() camera ID base is 10 in AOSP; Xiaomi requires rear ID 0.
+    The main() camera ID base is 10 in AOSP; ColorOS requires rear ID 0.
     Reuse the NOTE program header for an appended read-only string table,
     and the optional DT_DEBUG entry for DT_NEEDED. Notes remain present in
     the original load segment. No code/data addresses or relocations move.
@@ -77,9 +77,9 @@ def build_library(sdk, work, cpp):
     original = work / 'libc++.so'
     original.write_bytes(cpp)
     candidates = list((Path(sdk) / 'ndk').glob(
-        '*/toolchains/llvm/prebuilt/darwin-*/bin/aarch64-linux-android36-clang++'))
+        '*/toolchains/llvm/prebuilt/darwin-*/bin/aarch64-linux-android*-clang++'))
     if not candidates:
-        raise RuntimeError('Install Android NDK with API 36 to build the scene camera bridge.')
+        raise RuntimeError('Install Android NDK to build the scene camera bridge.')
     compiler = max(candidates, key=lambda path: tuple(int(v) for v in path.parents[5].name.split('.')))
     library = work / 'libhyperos_avd_scene.so'
     subprocess.run([str(compiler), str(REPO_ROOT / 'native/camera_scene_roles.cpp'),
@@ -92,7 +92,7 @@ def build_library(sdk, work, cpp):
 
 def build_vendor(source, destination, work, sdk):
     """Bake the bridge, preserving every existing vendor inode's metadata."""
-    from build_image import erofs
+    from image_utils import erofs
     from erofs_image import build
     work = Path(work)
     library = build_library(sdk, work / 'native', erofs(source, '/lib64/libc++.so'))
@@ -110,6 +110,7 @@ def build_vendor(source, destination, work, sdk):
         raise RuntimeError('Baked scene provider verification failed.')
     if hashlib.sha256(erofs(destination, LIBRARY.removeprefix('/vendor'))).hexdigest() != sha256(library):
         raise RuntimeError('Baked scene bridge verification failed.')
-    return {'revision': 1, 'provider_sha256': AFTER, 'library_sha256': sha256(library),
+    return {'revision': 2, 'provider_sha256': AFTER, 'library_sha256': sha256(library),
             'back_camera': 'virtualscene', 'front_camera': 'emulated',
-            'back_camera_id': '0', 'deferred_preview_size': '1024x768'}
+            'back_camera_id': '0', 'deferred_preview_size': '1024x768',
+            'back_digital_zoom': '1x-4x', 'crop_formats': ['YUV_420_888', 'RGBA', 'JPEG', 'RAW16']}

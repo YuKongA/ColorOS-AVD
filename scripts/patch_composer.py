@@ -37,7 +37,7 @@ def patch(data):
 
 def build_vendor(source, destination, work):
     """Recompress the patched ELF while retaining all vendor inode metadata."""
-    from build_image import erofs
+    from image_utils import erofs
     from erofs_image import build
     path = NATIVE.removeprefix('/vendor/')
     data = patch(erofs(source, '/' + path))

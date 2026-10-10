@@ -8,8 +8,9 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from patch_audio import AFTER, CODE, patch
+from image_utils import erofs
 
-SOURCE = REPO / 'work/os4-official/work/audio-output/source/libtinyalsav2.so'
+SOURCE = REPO / 'work/coloros/work/base/vendor.img'
 
 
 class PlaybackGuardTest(unittest.TestCase):
@@ -19,7 +20,7 @@ class PlaybackGuardTest(unittest.TestCase):
 
     @unittest.skipUnless(SOURCE.is_file(), 'Verified vendor ELF is not bundled')
     def test_elf_retains_abi_and_relro(self):
-        original = SOURCE.read_bytes()
+        original = erofs(SOURCE, '/lib64/libtinyalsav2.so')
         result = patch(original)
         self.assertEqual(hashlib.sha256(result).hexdigest(), AFTER)
         self.assertEqual(patch(result), result)
@@ -37,7 +38,7 @@ class PlaybackGuardTest(unittest.TestCase):
 
     @unittest.skipUnless(SOURCE.is_file(), 'Verified vendor ELF is not bundled')
     def test_tampered_vendor_is_rejected(self):
-        data = bytearray(SOURCE.read_bytes())
+        data = bytearray(erofs(SOURCE, '/lib64/libtinyalsav2.so'))
         data[-1] ^= 1
         with self.assertRaisesRegex(RuntimeError, 'Unsupported playback tinyalsa'):
             patch(data)

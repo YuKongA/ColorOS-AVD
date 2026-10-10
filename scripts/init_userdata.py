@@ -13,12 +13,12 @@ def create(path=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.img.part')
     with temporary.open('wb') as output:
-        output.truncate(6 * 1024**3)
+        output.truncate(16 * 1024**3)
     subprocess.run([tool('mke2fs', 'e2fsprogs'), '-F', '-t', 'ext4', '-b', '4096', '-I', '256',
                     '-O', 'encrypt,quota,project,casefold', '-E', 'encoding=utf8',
                     '-L', 'data', str(temporary)], check=True, capture_output=True)
     temporary.replace(path)
-    print('Created empty 6 GiB userdata template.')
+    print('Created empty 16 GiB userdata template.')
     return path
 
 

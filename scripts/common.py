@@ -1,27 +1,31 @@
-"""Shared host discovery and isolation rules for HyperOS-AVD."""
+"""Host discovery and isolation rules for ColorOS-AVD."""
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import shlex
+import signal
 import shutil
 import socket
 import subprocess
+import time
 import urllib.request
 
+from https_transport import secure_urlretrieve
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ROOT = Path(os.environ.get('HYPEROS_AVD_WORKSPACE', REPO_ROOT)).expanduser().resolve()
-DEFAULT_NAME = 'HyperOS_3_API_36'
-DEFAULT_PORT = 5566
-OS4_NAME = 'HyperOS_4_Official_API_37'
-OS4_PORT = 5574
-OS4_SOURCE = 'official-hongkong-ota'
+ROOT = Path(os.environ.get('COLOROS_AVD_WORKSPACE', REPO_ROOT / 'work/coloros')).expanduser().resolve()
+COLOROS_NAME = 'ColorOS17_API37'
+COLOROS_PORT = 5574
+COLOROS_SOURCE = 'official-coloros-ota'
+DEFAULT_NAME = COLOROS_NAME
+DEFAULT_PORT = COLOROS_PORT
 KSU_VERSION = 'v3.3.0'
 KSU_ASSETS = {
     'ksud-aarch64-apple-darwin': '40ca97a2fb61284129909abac5325dcae790736d9b88901f4f31cc7ec6d9a705',
     'ksud-aarch64-linux-android': '8614de6cdc2233c71fd0d1c64381ea10fbe6658651bae9b5a8dab4fe08e6344b',
     'lkm-aarch64-android15-6.6_kernelsu.ko': 'c31d994aaf285e7bf4cf1ec38c2bbf2d7f303d1a4a7d616405bcd9f850d684e5',
-    'lkm-aarch64-android16-6.12_kernelsu.ko': '877286f81d500c4ec546c96e9718c186b7379573c97ba5d5a35dd9a91465d076',
     'KernelSU_v3.3.0_32601-release.apk': 'c197060ecb89702e7d54a4c95e29cf5e8d97369bbbb436979ab7fd6bcde7b077',
 }
 
@@ -78,6 +82,87 @@ def port_free(port):
                 raise RuntimeError(f'Port {endpoint} is occupied. No emulator was stopped.')
 
 
+def _target_emulator_pids(name, port):
+    """Return QEMU/emulator PIDs that belong to this exact AVD endpoint."""
+    rows = subprocess.check_output(['ps', '-ax', '-o', 'pid=,command='],
+                                   text=True)
+    result = []
+    for row in rows.splitlines():
+        try:
+            parts = shlex.split(row.strip())
+            pid = int(parts[0])
+        except (ValueError, IndexError):
+            continue
+        command = parts[1:]
+        if not command or not any('qemu-system-' in item or item.endswith('/emulator')
+                                  for item in command[:1]):
+            continue
+        try:
+            avd = command[command.index('-avd') + 1]
+            endpoint = int(command[command.index('-port') + 1])
+        except (ValueError, IndexError):
+            continue
+        if avd == name and endpoint == port:
+            result.append(pid)
+    return result
+
+
+def terminate_emulator(sdk, name, port):
+    """Stop this AVD and wait for both console and ADB endpoints to close.
+
+    ``adb emu kill`` can acknowledge before QEMU has released its sockets.
+    The old launcher immediately retried ``port_free`` and could therefore
+    report a permanently occupied port. Process matching is restricted to the
+    exact AVD name and port so another emulator is never terminated.
+    """
+    adb_bin = Path(sdk) / 'platform-tools/adb'
+    try:
+        subprocess.run([str(adb_bin), '-s', f'emulator-{port}', 'emu', 'kill'],
+                       capture_output=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        if not _target_emulator_pids(name, port):
+            try:
+                port_free(port)
+                return
+            except RuntimeError:
+                pass
+        time.sleep(0.25)
+
+    pids = _target_emulator_pids(name, port)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not _target_emulator_pids(name, port):
+            try:
+                port_free(port)
+                return
+            except RuntimeError:
+                pass
+        time.sleep(0.25)
+
+    for pid in _target_emulator_pids(name, port):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            port_free(port)
+            return
+        except RuntimeError:
+            time.sleep(0.25)
+    port_free(port)
+
+
 def firmware_idle(fallback_port=DEFAULT_PORT):
     ports = set()
     for name in ('runtime.json', 'instances.json'):
@@ -94,11 +179,14 @@ def fetch_ksu(names):
     cache.mkdir(exist_ok=True)
     for name in names:
         path = cache / name
+        supplied = REPO_ROOT / 'tools' / name
+        if not path.exists() and supplied.is_file():
+            shutil.copy2(supplied, path)
         if not path.exists():
             url = f'https://github.com/tiann/KernelSU/releases/download/{KSU_VERSION}/{name}'
             temporary = path.with_suffix(path.suffix + '.part')
             print('Downloading official KernelSU asset:', name, flush=True)
-            urllib.request.urlretrieve(url, temporary)
+            secure_urlretrieve(url, temporary)
             if sha256(temporary) != KSU_ASSETS[name]:
                 temporary.unlink()
                 raise RuntimeError('KernelSU download checksum mismatch: ' + name)

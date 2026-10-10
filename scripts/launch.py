@@ -3,19 +3,58 @@
 import argparse
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import time
 
-from common import ROOT, adb, fetch_ksu, host_check, port_free, runtime
+from common import COLOROS_SOURCE, ROOT, adb, fetch_ksu, host_check, port_free, runtime, terminate_emulator
 from setup import configure
 
 
-def is_os4():
-    build = ROOT / 'local/build.json'
-    return build.is_file() and json.loads(build.read_text()).get('source') == 'official-hongkong-ota'
+def verify_coloros_userdata(config):
+    """Verify the mounted ext4 against the requested capacity on every boot."""
+    from userdata_guest import verify_and_grow
+    path = ROOT / 'avd' / (config['name'] + '.avd') / 'config.ini'
+    properties = dict(line.split('=', 1) for line in path.read_text().splitlines() if '=' in line)
+    storage = properties['disk.dataPartition.size']
+    return verify_and_grow(config, int(storage.removesuffix('G')) * 1024**3, allow_grow=False)
+
+
+def apply_coloros_defaults(config):
+    """Seed official ColorOS static wallpaper and display defaults on first boot."""
+    try:
+        wp_state = adb(config, 'shell', 'dumpsys wallpaper | grep "mWallpaperComponent="',
+                       capture_output=True, text=True, timeout=5).stdout
+        if 'com.android.systemui.wallpapers.ImageWallpaper' not in wp_state:
+            dex = ROOT / 'tools/SetWallpaper.dex'
+            if not dex.is_file():
+                dex = Path(__file__).resolve().parent.parent / 'tools/SetWallpaper.dex'
+            if dex.is_file():
+                remote = '/data/local/tmp/SetWallpaper.dex'
+                adb(config, 'push', str(dex), remote, check=True, timeout=15)
+                adb(config, 'shell',
+                    f'CLASSPATH={remote} app_process /data/local/tmp SetWallpaper /my_product/decouping_wallpaper/default/default_wallpaper.webp',
+                    check=True, timeout=15)
+                adb(config, 'shell', f'rm -f {remote}', timeout=5)
+                print('ColorOS official wallpaper seeded successfully.', flush=True)
+    except Exception as err:
+        print('Notice: Wallpaper auto-seed skipped:', err, flush=True)
+
+    try:
+        adb(config, 'shell', 'settings put system screen_off_timeout 2147483647', timeout=5)
+    except Exception:
+        pass
+
+
+def wake_display(config):
+    """Make a cold boot visible even when userdata preserved an asleep display."""
+    try:
+        adb(config, 'shell', 'input keyevent 224', timeout=5)
+        adb(config, 'shell', 'wm dismiss-keyguard', timeout=5)
+    except Exception:
+        pass
 
 
 def skip_oobe(config):
@@ -23,22 +62,35 @@ def skip_oobe(config):
         'set -e',
         'settings put global device_provisioned 1',
         'settings put secure user_setup_complete 1',
-        'pm disable-user --user 0 com.android.provision',
-        'am force-stop com.android.provision',
+        'pm disable-user --user 0 com.coloros.bootreg 2>/dev/null || true',
+        'am force-stop com.coloros.bootreg 2>/dev/null || true',
+        'pm disable-user --user 0 com.android.provision 2>/dev/null || true',
+        'am force-stop com.android.provision 2>/dev/null || true',
         'input keyevent 224',
         'wm dismiss-keyguard',
         'am start -W -a android.intent.action.MAIN -c android.intent.category.HOME '
-        '-n com.miui.home/com.miui.home.launcher.Launcher',
+        '-n com.android.launcher/com.android.launcher.Launcher',
     ])
     adb(config, 'shell', 'su -W -c ' + shlex.quote(command), check=True, timeout=30)
-    state = adb(config, 'shell',
-                'settings get global device_provisioned\n'
-                'settings get secure user_setup_complete\n'
-                'pm list packages -d com.android.provision',
-                capture_output=True, text=True, check=True, timeout=15).stdout.splitlines()
-    if state != ['1', '1', 'package:com.android.provision']:
-        raise RuntimeError('OOBE bypass validation failed: ' + repr(state))
-    print('OOBE skipped. Existing userdata was preserved.', flush=True)
+    print('ColorOS OOBE skipped. Existing userdata was preserved.', flush=True)
+
+
+def initialize_root(config):
+    root = adb(config, 'shell', "su -W -c 'id'", capture_output=True, text=True, timeout=15)
+    if 'uid=0(' not in root.stdout:
+        binary = ROOT / 'tools/ksud-aarch64-linux-android'
+        remote = '/data/local/tmp/coloros-avd-ksud'
+        adb(config, 'push', str(binary), remote, check=True, capture_output=True, timeout=30)
+        adb(config, 'shell', f'chmod 755 {remote}', check=True, timeout=15)
+        result = adb(config, 'shell', remote + ' debug su', input=remote + ' install\nexit\n',
+                     text=True, capture_output=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError('KernelSU initialization failed: ' + result.stderr)
+    result = adb(config, 'shell', "su -W -c 'id; getenforce; /data/adb/ksud feature set selinux_hide 0; /data/adb/ksud feature save'",
+                 capture_output=True, text=True, timeout=20)
+    if 'uid=0(' not in result.stdout or 'Enforcing' not in result.stdout or result.returncode:
+        raise RuntimeError('KernelSU root/enforcing validation failed: ' + result.stdout + result.stderr)
+    return result
 
 
 def initialize(config, bypass_oobe=False):
@@ -54,118 +106,118 @@ def initialize(config, bypass_oobe=False):
         time.sleep(3)
     else:
         raise RuntimeError('ADB did not become ready within 5 minutes. Inspect logs/emulator-current.log.')
-    if is_os4():
-        from os4_defaults import apply_sensor_defaults
-        apply_sensor_defaults(config)
-    root = adb(config, 'shell', "su -W -c 'id'", capture_output=True, text=True, timeout=15)
-    if 'uid=0(' not in root.stdout:
-        binary = ROOT / 'tools/ksud-aarch64-linux-android'
-        remote = '/data/local/tmp/hyperos-avd-ksud'
-        adb(config, 'push', str(binary), remote, check=True, capture_output=True, timeout=30)
-        adb(config, 'shell', f'chmod 755 {remote}', check=True, timeout=15)
-        result = adb(config, 'shell', remote + ' debug su', input=remote + ' install\nexit\n',
-                     text=True, capture_output=True, timeout=30)
-        if result.returncode:
-            raise RuntimeError('KernelSU initialization failed: ' + result.stderr)
-    result = adb(config, 'shell', "su -W -c 'id; getenforce; /data/adb/ksud feature set selinux_hide 0; /data/adb/ksud feature save'",
-                 capture_output=True, text=True, timeout=20)
-    if 'uid=0(' not in result.stdout or 'Enforcing' not in result.stdout or result.returncode:
-        raise RuntimeError('KernelSU root/enforcing validation failed: ' + result.stdout + result.stderr)
+    for sensor, value in [('proximity', '5'), ('light', '200')]:
+        try:
+            adb(config, 'emu', 'sensor', 'set', sensor, value,
+                stdout=subprocess.DEVNULL, timeout=5)
+        except Exception:
+            pass
+    result = initialize_root(config)
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         completed = adb(config, 'shell', 'getprop sys.boot_completed', capture_output=True,
                         text=True, timeout=15)
         if completed.returncode == 0 and completed.stdout.strip() == '1':
-            break
+            pm_check = adb(config, 'shell', 'pm path android 2>/dev/null || true',
+                           capture_output=True, text=True, timeout=10)
+            if 'package:' in pm_check.stdout:
+                break
         time.sleep(3)
     else:
         raise RuntimeError('Boot did not finish within 5 minutes. Inspect logs/emulator-current.log.')
-    build = ROOT / 'local/build.json'
-    if build.is_file() and json.loads(build.read_text()).get('source') == 'official-hongkong-ota':
-        from os4_defaults import apply_runtime
-        apply_runtime(config)
-        from apply_flutter_fix import install
-        install(config)
-        from apply_navigation_fix import install as install_navigation
-        install_navigation(config)
-        from apply_weather_fix import install as install_weather
-        install_weather(config)
-        from apply_assistant_fix import install as install_assistant
-        install_assistant(config)
-        from apply_xiaomi_camera_fix import MODULE, install as install_xiaomi_camera
-        installed = adb(config, 'shell', 'su -W -c ' + shlex.quote(
-            f'if [ -f {MODULE}/manifest.json ]; then echo yes; fi'),
-            capture_output=True, text=True, check=True, timeout=10).stdout.strip()
-        if installed == 'yes' or config.get('camera_bridge', False):
-            install_xiaomi_camera(config, rebuild=installed == 'yes')
+    capacity = verify_coloros_userdata(config)
+    apply_coloros_defaults(config)
+    adb(config, 'shell',
+        "su -W -c 'pidof vendor.oplus.hardware.urcc-service >/dev/null || (/system_ext/bin/vendor.oplus.hardware.urcc-service </dev/null >/dev/null 2>&1 &)'",
+        timeout=10)
+    wake_display(config)
     if bypass_oobe:
         skip_oobe(config)
     manager = adb(config, 'shell', 'pm path me.weishu.kernelsu', capture_output=True, text=True, timeout=15)
     if 'package:' not in manager.stdout:
-        adb(config, 'install', '--no-incremental', str(ROOT / 'tools/KernelSU_v3.3.0_32601-release.apk'),
-            check=True, timeout=60)
-    adb(config, 'shell', 'rm -f /data/local/tmp/hyperos-avd-ksud', timeout=15)
+        apk = ROOT / 'tools/KernelSU_v3.3.0_32601-release.apk'
+        if not apk.is_file():
+            apk = Path(__file__).resolve().parent.parent / 'tools/KernelSU_v3.3.0_32601-release.apk'
+        remote = '/data/local/tmp/KernelSU.apk'
+        adb(config, 'push', str(apk), remote, check=True, timeout=30)
+        adb(config, 'shell', f"su -W -c 'pm install -r -g {remote}'", check=True, timeout=60)
+        adb(config, 'shell', f"rm -f {remote}", timeout=10)
+    adb(config, 'shell', 'rm -f /data/local/tmp/*-ksud', timeout=15)
     (ROOT / 'local').mkdir(exist_ok=True)
     (ROOT / 'local/last-boot.json').write_text(json.dumps(
         {'name': config['name'], 'serial': f"emulator-{config['port']}",
-         'validated_at': datetime.now().astimezone().isoformat(), 'root': result.stdout}, indent=2) + '\n')
-    print(f"HyperOS is ready: emulator-{config['port']}, KernelSU root, SELinux Enforcing.", flush=True)
-
+         'validated_at': datetime.now().astimezone().isoformat(), 'root': result.stdout,
+         'userdata': capacity}, indent=2) + '\n')
+    print(f"ColorOS is ready: emulator-{config['port']}.", flush=True)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--headless', action='store_true')
-    parser.add_argument('--no-host-color-fix', action='store_true',
-                        help='Disable the OS4 macOS sRGB window tag for this launch')
+    parser.add_argument('--kill', '-k', action='store_true',
+                        help='Terminate any existing emulator on this port before starting')
     parser.add_argument('--skip-oobe', action='store_true',
-                        help='Skip Xiaomi provisioning and open the native launcher')
+                        help='Skip provisioning and open the native launcher')
+    parser.add_argument('--wait', action='store_true',
+                        help='Wait for the emulator process to exit before returning')
     args = parser.parse_args()
-    host_check()
     config = runtime()
-    port_free(config['port'])
+    build = ROOT / 'local/build.json'
+    if not build.is_file() or json.loads(build.read_text()).get('source') != COLOROS_SOURCE:
+        raise RuntimeError('Build ColorOS first: python3 scripts/build_coloros.py')
+    try:
+        port_free(config['port'])
+    except RuntimeError as err:
+        if args.kill:
+            print(f"Port {config['port']} is occupied; terminating existing emulator...", flush=True)
+            terminate_emulator(config['sdk'], config['name'], config['port'])
+        else:
+            raise RuntimeError(
+                f"Port {config['port']} is occupied. If an emulator is already running in background, "
+                f"terminate it with: ./Start-ColorOS.command --kill"
+            ) from err
     if not (ROOT / 'images/userdata.img').is_file():
-        raise RuntimeError('Run Setup.command with the release manifest first.')
+        raise RuntimeError('Build ColorOS first: python3 scripts/build_coloros.py')
     # Refresh relocated paths before every cold start; collision checks protect other AVDs.
     configure(Path(config['sdk']), config['name'], config['port'])
     fetch_ksu(['ksud-aarch64-linux-android', 'KernelSU_v3.3.0_32601-release.apk'])
-    userdata = ROOT / 'avd' / (config['name'] + '.avd') / 'userdata-qemu.img'
-    if not userdata.exists():
-        print('Creating fresh userdata from the clean release template.', flush=True)
-        shutil.copyfile(ROOT / 'images/userdata.img', userdata)
-    from manage import resize, validate_userdata
-    validate_userdata(Path(config['sdk']), userdata.parent)
-    hardware = config.get('hardware', {})
-    storage = hardware.get('disk.dataPartition.size')
-    if storage:
-        resize(Path(config['sdk']), userdata.parent, int(storage.rstrip('G')))
+    from storage_boot import prepare_userdata
+    prepare_userdata(config)
+    avd_config = ROOT / 'avd' / (config['name'] + '.avd') / 'config.ini'
+    properties = dict(line.split('=', 1) for line in avd_config.read_text().splitlines() if '=' in line)
     logs = ROOT / 'logs'
     logs.mkdir(exist_ok=True)
     log = logs / 'emulator-current.log'
     if log.exists():
         log.rename(logs / ('emulator-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.log'))
-    avd_config = ROOT / 'avd' / (config['name'] + '.avd') / 'config.ini'
-    properties = dict(line.split('=', 1) for line in avd_config.read_text().splitlines() if '=' in line)
     memory = str(int(properties.get('hw.ramSize', '2560')))
     cores = str(int(properties.get('hw.cpu.ncore', '2')))
     command = [str(Path(config['sdk']) / 'emulator/emulator'), '-avd', config['name'],
                '-sysdir', str(ROOT / 'images'), '-port', str(config['port']),
                '-no-snapshot-load', '-no-snapshot-save', '-accel', 'on', '-gpu', 'host',
                '-memory', memory, '-cores', cores, '-show-kernel', '-verbose']
-    if is_os4():
-        command += ['-crash-report-mode', 'never']
     if args.headless:
         command += ['-no-window']
-    from host_color import environment
-    launch_environment = environment(ROOT, config['name'],
-                                     enabled=not (args.headless or args.no_host_color_fix))
     with log.open('wb') as output:
-        process = subprocess.Popen(command, env=launch_environment, stdout=output,
-                                   stderr=subprocess.STDOUT, start_new_session=True)
+        # Keep QEMU independent of the terminal that launched the script.
+        # macOS can send a hangup to the emulator wrapper when the shell
+        # session closes even though it has its own session id; redirecting
+        # stdin and closing all inherited descriptors prevents that cascade.
+        process = subprocess.Popen(command, env=os.environ.copy(), stdout=output,
+                                   stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                   start_new_session=True, close_fds=True)
     print(f"Starting {config['name']} (PID {process.pid}). Log: {log}", flush=True)
     # The emulator stays running if setup fails; evidence and userdata are retained.
     initialize(config, bypass_oobe=args.skip_oobe)
-
-
+    if process.poll() is not None:
+        raise RuntimeError(
+            f"Emulator exited immediately with status {process.returncode}. "
+            "Inspect logs/emulator-current.log."
+        )
+    if args.wait:
+        try:
+            process.wait()
+        except KeyboardInterrupt:
+            pass
 if __name__ == '__main__':
     try:
         main()

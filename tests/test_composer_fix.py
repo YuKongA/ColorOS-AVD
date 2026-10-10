@@ -7,8 +7,9 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from patch_composer import AFTER, MANIFEST, NATIVE, patch
+from image_utils import erofs
 
-SOURCE = REPO / 'work/os4-official/work/activity-dim/android.hardware.graphics.composer3-service.ranchu'
+SOURCE = REPO / 'work/coloros/work/base/vendor.img'
 
 
 class ComposerGuardTest(unittest.TestCase):
@@ -18,7 +19,7 @@ class ComposerGuardTest(unittest.TestCase):
 
     @unittest.skipUnless(SOURCE.is_file(), 'Verified vendor ELF is not bundled')
     def test_pinned_elf_has_only_one_byte_changed(self):
-        original = SOURCE.read_bytes()
+        original = erofs(SOURCE, '/bin/hw/android.hardware.graphics.composer3-service.ranchu')
         result = patch(original)
         self.assertEqual(hashlib.sha256(result).hexdigest(), AFTER)
         self.assertEqual(len(result), len(original))

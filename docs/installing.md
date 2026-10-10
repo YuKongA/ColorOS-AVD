@@ -1,105 +1,66 @@
-# 安装、升级 / Install & update
+# 安装与启动 ColorOS
 
-需要 Apple Silicon macOS、Python 3、Android Studio SDK 的 Emulator 和 Platform-Tools。无需 NDK、手机 OTA 或手动下载镜像分卷。建议预留至少 60 GiB；大容量用户数据备份还需要额外空间。
+当前项目从官方 OTA 构建 ColorOS，不使用旧项目的在线镜像安装器。
 
-Requires Apple Silicon macOS, Python 3, and Android Studio SDK Emulator / Platform-Tools. No NDK, phone OTA, or manual firmware downloads. Reserve at least 60 GiB plus space for userdata backups.
+## 环境
 
-## 启动安装器 / Open the installer
+- Apple Silicon Mac、Python 3、JDK 17 或更新版本。
+- Android Studio SDK：Emulator、Platform-Tools、API 36 Google Play ARM64 系统镜像 **revision 7**。
+- SDK platform `android-36`、Build-Tools `36.0.0`、Android NDK，用于编译相机适配代码。
+- Homebrew 工具：`brew install erofs-utils e2fsprogs lz4`。
+- 首次提取 OTA 时需要 `payload-dumper-go`；可以安装到 PATH，也可以放入 `tools/`。
 
-推荐直接运行，无需手动下载文件：
+## 构建
 
-```sh
-curl -fsSL https://github.com/NEORUAA/HyperOS-AVD/releases/latest/download/install.sh | bash
-```
-
-选择中文 / English，再输入安装与下载目录。正式安装器存于该目录的 `installer/`，镜像缓存存于 `downloads/`，新 AVD 默认安装到 `instances/<名称>/`；进入 TUI 后仍可单独调整每个实例的位置。通过 `curl | bash` 启动时，交互输入来自当前终端。
-
-Run the command above, choose a language and a base directory. The bootstrap fetches and verifies the latest stable installer, then opens its menu. It keeps installers in `installer/`, downloads in `downloads/`, and defaults new instances to `instances/<name>/`. Each instance's path can still be changed in the menu.
-
-克隆仓库后双击 `Install.command`，或运行：
+将 OPPO Find X10 Pro Max / PMX110 的 ColorOS 17 官方 OTA ZIP 放入 `rom/`，按 [构建说明](rebuilding.md)准备工具，然后执行：
 
 ```sh
-git clone https://github.com/NEORUAA/HyperOS-AVD.git
-cd HyperOS-AVD
-chmod +x Install.command
-./Install.command
+python3 scripts/build_coloros.py
 ```
 
-也可只下载独立正式 [Installer Release](https://github.com/NEORUAA/HyperOS-AVD/releases/tag/installer-v1.0.0) 的 `HyperOS-AVD-Installer-v1.0.0-macos-arm64.zip`，解压后双击 `Install.command`。**镜像会由安装器自动下载**；首次选择中文 / English，之后按菜单操作。
+也可双击根目录的 `Build-ColorOS.command`。默认工作区为 `work/coloros`，构建器会注册 ColorOS AVD。构建前关闭该模拟器，已有 userdata 会保留。
 
-Clone the repository and open `Install.command`, or extract the small ZIP from the separate stable Installer Release. The installer downloads firmware automatically. Select 中文 / English, then follow the menu. Installer versions (`installer-v*`) are independent of firmware versions and prereleases.
+## 启动
 
-```text
-+------------------------------------------------------------------+
-| H Y P E R O S - A V D   /   INSTALLER 1.0.0                      |
-+------------------------------------------------------------------+
-| Images: OS4 official OTA  |  OS3 GSI                             |
-| Installer: stable releases  |  Images: prereleases included      |
-+------------------------------------------------------------------+
-+------------------------------------------------------------------+
-| Dashboard                                                        |
-+------------------------------------------------------------------+
-| [1] Install a new AVD      [2] Upgrade / keep data               |
-| [3] Start an instance      [4] RAM / storage / CPU               |
-| [5] Browse images / updates [6] Recover / rollback               |
-| [7] Installer updates      [0] Exit                              |
-+------------------------------------------------------------------+
-```
-
-- 名称支持字母、数字、点、下划线、连字符；每个实例独立保存镜像、数据与端口。
-- OS4 默认 6 GiB / 32 GiB / 4 核；负一屏完整背景模糊建议 8 GiB。OS3 默认 2.5 GiB / 2 核。已有存储只允许扩容。
-- `[1]` 同时列出 OS3 / OS4 镜像及历史版本；选择页输入 `0` 返回。`[5]` 查看两版镜像更新，包含 Pre-release；`[7]` 单独检查正式安装器更新并给出下载链接。
-- “启动”或实例目录的 `Start.command` 会启用 root、传感器、60 Hz 与 macOS 色彩适配。直接使用 Android Studio Start 不包含所有初始化步骤。
-- 小米相机桥接为可选实验功能，安装时可开启，预编译附件无需 NDK；后摄录像仍有掉帧。
-
-Names allow ASCII letters, digits, dots, underscores and hyphens. Instances have separate firmware, userdata and ports. OS4 defaults to 6 GiB RAM / 32 GiB storage / 4 cores; OS3 uses 2.5 GiB / 2 cores. Use 8 GiB for full OS4 App Vault wallpaper blur. Storage only grows. Install lists both image families; enter `0` to go back. Image update checks include prereleases; installer update checks list stable releases separately and provide a download link. Use the instance's `Start.command` for root and compatibility initialization. Xiaomi camera is an optional experimental bridge; rear video still drops frames.
-
-## v0.2.0 保数据升级 / Keep v0.2.0 data
-
-1. **关闭要升级的 AVD**，其余 AVD 可继续运行。
-2. 打开新安装器 → `2 升级` → 选择已注册的 v0.2.0 实例 → 选择 v0.2.1 或后续兼容版本。
-3. RAM / 核心可修改，存储应保持原值或增大。脚本校验全部分卷与安装文件后，备份完整 AVD 数据、QCOW2 和加密密钥，再切换固件与对应启动代码。
-4. 启动后继续使用原应用、数据和已完成的开机引导。首次启动或升级后可能需要数分钟重建缓存，请等待引导完成。备份位于实例的 `backups/`，保留到确认升级正常。
-
-Close only the target AVD. Choose **Upgrade**, select the registered v0.2.0 instance, then a compatible release. Downloads and extracted files are verified before a full AVD backup, including QCOW2 and encryption keys. Firmware and its matching startup code switch together; apps, userdata and completed setup remain intact. The first boot after installation or upgrade can take several minutes to rebuild caches. Keep `backups/` until satisfied.
-
-安装器不会自动停止任何模拟器、缩小存储、降级已有数据或跨不兼容的 Android / 镜像族迁移。固件家族和加密模板不一致时，请安装独立 AVD。
-
-The manager does not stop emulators, shrink disks, downgrade existing data, or migrate incompatible image families. Install a separate instance if the userdata family or encryption template changes.
-
-最早从源码构建的 OS3 / OS4 也会显示在实例列表中；若没有 `local/installed-release.json`，可启动或调整硬件，但会拒绝自动迁移固件。上述保数据升级流程适用于从 Release 安装且带发布清单的实例。
-
-Original source-built OS3 / OS4 workspaces are also listed. Without `local/installed-release.json`, they support start and hardware settings, but automatic firmware migration is refused. The upgrade flow above requires a release-installed instance with its manifest.
-
-## 恢复 / Recovery
-
-配置切换失败会自动恢复。若进程被中断，重新打开安装器，选择 `6 恢复/回滚`；也可用此入口选择升级前的备份。回滚包含旧镜像、配置和备份时的数据，之后产生的数据不会并入旧备份。仅在目标 AVD 关闭后操作。
-
-Failed switches roll back automatically. After an interruption, use **Recover/Rollback**, or select the pre-upgrade backup explicitly. Rollback restores the old firmware, configuration and data as captured by that backup. Changes made after the backup are not merged. Close the target AVD first.
-
-启动超时不会自动停止或重置 AVD。若系统仍在引导，先等待；确需重试时，关闭目标 AVD 后重新启动，保留用户数据。测试中曾遇到一次既有应用原生库读取等待，保数据冷启动重试后完成引导。
-
-A boot timeout does not stop or reset the AVD. Wait if boot is still progressing; to retry, close only that AVD and start it again without resetting userdata. One test boot waited on an existing app's native library; a cold retry completed with data retained.
-
-## 非交互 / CLI
+双击 `Start-ColorOS.command`，或执行：
 
 ```sh
-# Latest OS4, automatically downloaded; use the same root/name when upgrading.
-python3 scripts/manage.py install --root "$HOME/HyperOS-AVD/instances/My_OS4" \
-  --name My_OS4 --release latest --ram 6 --storage 32 --cores 4 --start
-
-# Offline install / upgrade from existing parts, preserving the target instance.
-python3 scripts/manage.py install --root /path/to/old/work/os4-official \
-  --name HyperOS_4_Official_API_37 --bundle /path/to/manifest.json \
-  --ram 6 --storage 32 --cores 4
-
-python3 scripts/manage.py releases
-python3 scripts/manage.py releases --variant os3
-python3 scripts/manage.py installer-updates
-python3 scripts/manage.py list
-python3 scripts/manage.py start --root /path/to/instance
+./Start-ColorOS.command
 ```
 
-下载支持断点续传与 SHA-256 校验；失败后保留缓存。GitHub API 限流或网络中断会显示错误，可稍后重试，或用离线 `--bundle`。同镜像族的未来版本沿用此流程；需要更新安装器格式时，脚本会明确提示。
+可用参数：
 
-Downloads resume and validate SHA-256. Failed transfers retain their cache. Retry API limits / network errors, or use offline `--bundle`. Future compatible releases follow the same flow; a newer required installer format is reported explicitly.
+- `--skip-oobe`：跳过首次开机引导，打开原生桌面。
+- `--kill`：关闭当前 ColorOS 实例后重新启动。
+- `--headless`：不显示模拟器窗口。
+
+默认配置为 4 核、6 GiB RAM、16 GiB data、1272×2772 / 560 dpi。启动器会初始化 Root、传感器、壁纸并核验 data 文件系统容量。旧加密实例需要扩容或缺少容量证明时，会先备份到工作区 `backups/`，通过临时无窗口实例完成核验，再正常启动；失败后备份保留，运行中的数据不会自动被旧备份覆盖。直接从 Android Studio 启动不会执行这些初始化步骤。
+
+若镜像已经构建好，只需重新注册路径，可执行 `./Setup.command`。此入口仅注册现有 ColorOS 镜像，不下载或导入其他系统。
+
+ADB 序列号默认为 `emulator-5574`：
+
+```sh
+adb -s emulator-5574 shell
+adb -s emulator-5574 shell su -W -c id
+```
+
+## 卸载
+
+先关闭 ColorOS 模拟器，然后双击 `Uninstall-ColorOS.command` 或执行：
+
+```sh
+./Uninstall-ColorOS.command
+```
+
+默认移除 Android Studio 中的 AVD 注册信息，保留用户数据、加密密钥、构建镜像和备份。执行 `./Setup.command` 可重新注册；再次使用启动器也会恢复注册。
+
+同时删除当前实例的全部用户数据和加密密钥：
+
+```sh
+./Uninstall-ColorOS.command --delete-data
+```
+
+此操作要求输入实例名称确认，只删除工作区中对应的 `.avd` 目录，构建镜像和备份继续保留。自定义实例可传入 `--name 实例名称`。
+
+卸载器检查注册归属和运行进程，不会自动关闭模拟器，也不会删除其他工作区或其他实例的数据。不需要 Android SDK 仍然可用。

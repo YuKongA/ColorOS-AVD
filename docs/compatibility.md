@@ -1,101 +1,23 @@
-# Compatibility notes
+# ColorOS AVD 兼容性
 
-Validated platform: Apple Silicon macOS, Android Emulator 37.1.11, API 36
-Google Play ARM64 system image revision 7, stock ranchu Android 15 / 6.6 kernel,
-HyperOS 3.0.2.0.WMCCNXM MysticGSI, KernelSU v3.3.0 (32601), early-boot LKM.
-Other host architectures and SDK base revisions are not established.
+项目面向 Apple Silicon Mac。系统来自 OPPO Find X10 Pro Max 的 ColorOS 17.0.0.114（Android 17 / API 37），硬件基底为 API 36 Google Play ARM64 revision 7 的 Ranchu Vendor 和 4 KiB 内核。
 
-On the tested 16 GiB Mac, running the existing Pixel AVD together with two
-HyperOS test AVDs caused severe swapping and ADB timeouts. Serializing the
-HyperOS tests resolved those timeouts. Use one HyperOS instance at a time on
-hosts with similar memory capacity.
+## 已有验证范围
 
-## GPS
+- ColorOS 原生桌面、设置、首次开机引导、相册和壁纸。
+- ADB、KernelSU v3.3.0 Root、全局 SELinux Enforcing。
+- Ranchu GPU 合成与播放音频的兼容补丁。
+- 前后摄预览与 JPEG 拍照，部分 720p/1080p H.264 + AAC 录像、后摄数码裁剪、专业模式普通拍照。
+- userdata 启动前会核验解密设备上的 ext4 容量、UUID 和挂载身份；当前实例从 6 GiB 扩到 16 GiB 后冷启动仍通过。加密扩容需要完整离线备份和受控来宾验证。
 
-The previous GPS-enabled configuration could deadlock `system_server`:
+相机各项结果及运行时覆盖差异见 [相机验证记录](coloros-camera-validation.md)。前摄缩放未通过；不提供真实手机的超广角/长焦设备；人像、美颜等硬件依赖能力已关闭。4K/60fps、HDR、夜景算法、RAW 和慢动作没有完整成片验收。
 
-```text
-android.fg: GnssLocationProvider.stopNavigating()
-  -> synchronized GnssHal.stop()
-    -> ranchu Gnss::stop()
-      -> synchronous SESSION_END callback
-        -> GnssNative.reportStatus()
-          -> GnssStatusProvider / ListenerMultiplexer lock
-```
+开启模拟器 GPS、无线电或传感器选项，只表示配置虚拟设备，不代表已经验证 OPPO 的定位、蜂窝网络、云服务及真实硬件能力。
 
-A concurrent listener operation can hold the listener lock while waiting for
-`GnssHal`, creating the reverse lock order. The watchdog then kills
-`system_server`; apps can stall or show blank content before boot animation.
-Disabling GPS avoided that path but removed functionality.
+## 启动与数据
 
-The compatibility patch changes only four smali classes in `services.jar`'s
-`classes2.dex`: `reportStatus()`, `reportSvStatus()` and `reportLocation()` post their existing
-callback adapters to `FgThread.getHandler()`. The adapters implement `Runnable`
-while retaining
-`Binder.withCleanCallingIdentity()`. Queuing on the same foreground handler
-lets the HAL call return and release its monitor before status delivery.
-A second captured ANR showed a hardware callback holding the HAL mutex while
-waiting for `GnssStatusProvider`, with Xiaomi DFS holding its listener lock and
-waiting for HAL `stopSvStatus()`. Deferring satellite status and first-fix
-notifications breaks that path too. The patch rejects a services.jar whose
-SHA-256 differs from the pinned GSI.
+使用 `Start-ColorOS.command` 执行项目初始化。默认 4 核 / 6 GiB RAM / 16 GiB data；运行多个大型 AVD 时需考虑宿主机内存。启动器保留 userdata 和加密密钥，存储只允许扩大。
 
-The ranchu HAL, real GPS provider, and Xiaomi fused provider remain available.
-Hardware coordinate injection is not Android's mock-location provider API.
-Tests cover injected Hong Kong/London coordinates and repeated GNSS start/stop.
-Xiaomi network geolocation, geocoding, physical satellite reception and all
-Google fused-location use cases are not established by those tests.
+旧 userdata 可能包含相机测试时的 bind mount 或覆盖文件；它们与最新镜像组合后的结果需要单独核验。构建和注册检查端口与实例归属，拒绝覆盖其他工作区同名 AVD。
 
-## Enforcing SELinux
-
-The GSI's `permissiver.rc` early-init action is removed. Three Xiaomi
-CameraServiceProxy scene booleans are individually labeled
-`exported_system_prop`, matching related Xiaomi scene properties:
-
-- `persist.vendor.camera.3rdhighResolutionBlob.scenes`
-- `persist.vendor.camera.3rdlive.scenes`
-- `persist.vendor.camera.3rdvideocall.scenes`
-
-Without these labels, property-setting failures abort framework boot.
-The ranchu ADB setup script receives its `goldfish_system_setup_exec` label.
-There is no broad `vendor_default_prop` allow rule.
-
-The GSI mislabeled `logcat` as `logd_exec`; its label is corrected to
-`logcat_exec` so ordinary ADB can execute it. Settings' log-persistence property
-writes receive the narrow `system_app` → `logpersistd_logging_prop` permission
-used by AOSP userdebug policy. The GSI enables debugging but originally omitted
-that allow, which caused Developer Options to crash under enforcement.
-
-Global enforcement and `/sys/fs/selinux/enforce=1` are checked with KernelSU state
-hiding disabled. KernelSU's privileged `ksu` domain remains permissive by its
-official policy. Some optional Xiaomi hardware/services still produce AVC
-denials; this is not a full OEM policy port.
-
-## Display and media
-
-The Xiaomi overlay supplies 1080-pixel masks, explicit 440-dpi resources,
-121-pixel top safe inset and 118-pixel corner radius. Running at 720 pixels wide
-scaled only one axis of the mask, elongating corners and the hole. The AVD now
-uses 1080 × 2400 at 440 dpi without changing the original overlay.
-
-The stock vendor and kernel modules are retained. Separate product/system_ext
-mounts are disabled because those directories are embedded in the GSI. Ranchu
-radio/APN initialization and host modem profiles are included. HyperOS's 64-bit
-mediaserver is selected and its ARM32-only drmserver is replaced by the ARM64
-API 36 executable. Service startup does not establish DRM playback or audio.
-AVB verification is disabled for this development image.
-
-## Data and recovery
-
-Ordinary starts preserve userdata. Image import/build must run while this
-checkout's AVD is stopped. Never copy userdata, encryption keys or snapshots
-from an unrelated AVD. If restoring a manual backup, restore the userdata base
-and its qcow2 overlay together while the device is stopped.
-
-## First boot
-
-The clean-data release test completed boot and automatic KernelSU installation.
-A one-time SystemUI exception was observed in Xiaomi's lock-screen magazine
-`onDeviceProvisioned()` path. SystemUI recovered and system_server remained
-running. This is retained as an experimental GSI limitation; the GPS test does
-not establish full Xiaomi lock-screen/cloud-service compatibility.
+固件修改、AVB flags、ADB 认证与 SELinux 设置见 [完整修改清单](coloros-firmware-changes.md)。

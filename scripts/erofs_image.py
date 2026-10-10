@@ -138,7 +138,8 @@ def build(destination, partitions, work, replacements, removals=(),
                 with tempfile.TemporaryDirectory(prefix='extract-staging-', dir=work) as staging:
                     tree = Path(staging) / 'tree'
                     subprocess.run([tool('fsck.erofs', 'erofs-utils'), '-d0',
-                                    '--extract=' + str(tree), '--preserve-perms', str(image)], check=True)
+                                    '--extract=' + str(tree), '--preserve-perms',
+                                    '--overwrite', str(image)], check=True)
                     (tree / '.extraction-complete').write_text(source_hash)
                     if extracted.exists():
                         old = Path(tempfile.mkdtemp(prefix='incomplete-extract-', dir=work)) / 'tree'
@@ -181,8 +182,9 @@ def build(destination, partitions, work, replacements, removals=(),
                     if not stat.S_ISDIR(expected[parent]['mode']):
                         raise RuntimeError('Replacement parent is not a directory: ' + parent)
                 else:
+                    label = b'u:object_r:vendor_configs_file:s0\0' if parent.startswith(('odm/etc', 'vendor/etc', 'etc')) else b'u:object_r:system_file:s0\0'
                     expected[parent] = {'uid': 0, 'gid': 0, 'mode': stat.S_IFDIR | 0o755,
-                        'attrs': {'security.selinux': b'u:object_r:system_file:s0\0'}}
+                        'attrs': {'security.selinux': label}}
         command = [tool('mkfs.erofs', 'erofs-utils'), '-b4096', '-z', 'lz4',
                    '--workers=2', '--tar=f', '--sort=none', str(temporary)]
         with subprocess.Popen(command, stdin=subprocess.PIPE) as process:

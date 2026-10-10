@@ -1,18 +1,19 @@
-# Generated images, releases, and personal AVD state.
-/images/
-/input/
 /work/
-/tools/
-/avd/
-/local/
-/logs/
-/backups/
-/downloads/
-/releases/
+/rom/
 
-# Source firmware, partial downloads, binary caches, and credentials.
 *.img
 *.qcow2
+*.apk
+*.jar
+*.dex
+*.class
+*.so
+*.dylib
+*.ko
+*.o
+*.a
+*.hprof
+
 *.zip
 *.tar
 *.gz
@@ -20,14 +21,16 @@
 *.7z
 *.crdownload
 *.part
-*.apk
-*.jar
-*.so
-*.dylib
-*.dex
-*.class
-*.hprof
-*.ko
+*.partial
+
+/tools/*
+!/tools/README.md
+!/tools/SetWallpaper.dex
+
+__pycache__/
+*.py[cod]
+/.venv/
+
 *.jks
 *.keystore
 *.pem
@@ -35,14 +38,12 @@
 .env
 .env.*
 
-# Host and editor state.
+*.log
+*.swp
+*.swo
+*~
 .DS_Store
 ._*
 .idea/
 .vscode/
 .codex/
-__pycache__/
-*.py[cod]
-*.log
-*.lock
-*.swp
