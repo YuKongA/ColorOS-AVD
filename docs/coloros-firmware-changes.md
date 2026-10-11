@@ -35,6 +35,13 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 
 入口：[build_coloros.py](../scripts/build_coloros.py)、[urcc_service.cpp](../native/urcc_service.cpp)、[sendextcamcmd_service.cpp](../native/sendextcamcmd_service.cpp)。构建器通过 Android NDK 从源码编译两个 stub，产物写入工作区的 `work/native-services/`，然后写入镜像。
 
+### 蜂窝和蓝牙
+
+- 新增 product 分区的 Connectivity 资源 overlay，使 EthernetTracker 只匹配 `usb[0-9]+`，避免抢占 Ranchu Radio HAL 使用的 `eth0`。移动数据开关关闭后不再由独立 Ethernet 网络继续联网。源码与构建入口为 [coloros_connectivity](../native/coloros_connectivity/) 和 [connectivity_overlay.py](../scripts/connectivity_overlay.py)。
+- 对 `system/lib64/libbluetooth_jni.so` 的 OPPO HDT 扩展回调做固定 12 字节修改，标记虚拟控制器不支持该扩展，避免开启蓝牙时因响应格式断言而崩溃。保留标准 HCI 初始化；[bluetooth_hdt_compat.S](../native/bluetooth_hdt_compat.S) 记录汇编，[native_patches.py](../scripts/native_patches.py) 检查输入与输出 SHA-256。
+
+重建后冷启动、蜂窝/Wi-Fi HTTPS、移动数据和蓝牙开关的结果见 [蜂窝与蓝牙验证](coloros-connectivity-validation.md)。
+
 ## 3. 图形与音频兼容
 
 | 文件或设置                                 | 修改                                                                                                           | 解决的问题                                         |

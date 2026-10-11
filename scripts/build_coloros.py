@@ -452,6 +452,10 @@ def main():
     def put(path, data, mode=0o644, label='u:object_r:system_file:s0'):
         replacements[path] = (data, mode, label)
 
+    from connectivity_overlay import build as build_connectivity_overlay
+    put('product/overlay/ColorOSConnectivityOverlay/ColorOSConnectivityOverlay.apk',
+        build_connectivity_overlay(sdk_path(), ROOT / 'work/connectivity-overlay'))
+
     # Patch system/build.prop
     prop = normalize_display_properties(prop)
     product = normalize_display_properties(product)
@@ -557,6 +561,9 @@ def main():
     # Patch libhwui.so to fix GLSL ES 1.00 syntax error in OplusCausticShadowEffect
     hwui_data = erofs(system, '/system/lib64/libhwui.so')
     put('system/lib64/libhwui.so', apply_native_patch(hwui_data, PROFILES['hwui']),
+        0o644, 'u:object_r:system_lib_file:s0')
+    put('system/lib64/libbluetooth_jni.so',
+        apply_native_patch(erofs(system, '/system/lib64/libbluetooth_jni.so'), PROFILES['bluetooth']),
         0o644, 'u:object_r:system_lib_file:s0')
     cached = (
         'ksud-aarch64-apple-darwin', 'lkm-aarch64-android15-6.6_kernelsu.ko',

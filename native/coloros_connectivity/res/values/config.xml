@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ranchu radio uses eth0 for mobile data. EthernetTracker must not
+         create another network agent or DHCP client for that interface. -->
+    <string name="config_ethernet_iface_regex" translatable="false">usb[0-9]+</string>
+</resources>

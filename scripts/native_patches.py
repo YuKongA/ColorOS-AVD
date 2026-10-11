@@ -20,6 +20,15 @@ class Profile:
 
 RETURN_ZERO = bytes.fromhex('00008052c0035fd6')
 PROFILES = {
+    'bluetooth': Profile(
+        'system/lib64/libbluetooth_jni.so',
+        '4cd62b0dbfa0cf325721a6e86673ddf68698b30c5e9a7982d4126fb85623594e',
+        '188c4e516a3320cd00ffdbb5c4579972fe3aec858f80fc8ff956a8a6b01a4aca',
+        # ControllerImpl::impl::read_local_hdt_features_handler. Rootcanal
+        # returns UNKNOWN_HCI_COMMAND for the proprietary HDT query. Preserve
+        # BTI, clear local_hdt_features_ and return before the OEM assertion.
+        (Site(0xd99540, bytes.fromhex('5f2403d55e8600f8ffc304d1'),
+                        bytes.fromhex('5f2403d51f100639c0035fd6')),)),
     'gralloc': Profile(
         'system_ext/lib64/libgralloc_extra_sys.so',
         '5f29022d542ccef28fd8e7879d57448efa99d03545171d837793feec8f2b92a0',
