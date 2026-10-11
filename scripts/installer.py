@@ -24,6 +24,17 @@ def ask(prompt, default):
     return answer or str(default)
 
 
+def default_install_root():
+    """Prefer the caller's working directory, with safe fallback locations."""
+    configured = os.environ.get('COLOROS_AVD_HOME')
+    if configured:
+        return Path(configured).expanduser().resolve()
+    current = Path.cwd().resolve()
+    if current in (Path('/'), Path.home().resolve()) or (current / '.git').exists():
+        return current / 'ColorOS-AVD'
+    return current
+
+
 class Back(Exception):
     """Move one level up in the interactive wizard."""
 
@@ -54,10 +65,10 @@ def select_root(initial=None):
     if initial is not None:
         return Path(initial).expanduser().resolve()
     while True:
-        value = input(f'安装目录 [{Path.home() / "ColorOS-AVD"}]（0 退出）：').strip()
+        value = input(f'安装目录 [{default_install_root()}]（0 退出）：').strip()
         if value in ('0', 'q', 'Q'):
             return None
-        root = Path(value or Path.home() / 'ColorOS-AVD').expanduser().resolve()
+        root = Path(value or default_install_root()).expanduser().resolve()
         if root in (Path('/'), Path.home().resolve()) or (root / '.git').exists():
             print('请选择独立目录，例如 ~/ColorOS-AVD。')
             continue
@@ -428,7 +439,7 @@ def main():
     if args.action is None:
         wizard(args)
         return
-    root = (args.root or Path.home() / 'ColorOS-AVD').expanduser().resolve()
+    root = (args.root or default_install_root()).expanduser().resolve()
     if args.action == 'install':
         sdk = require_environment(args.sdk or Path.home() / 'Library/Android/sdk')
         hardware = validate_options(args.name, args.port, args.ram, args.storage, args.cores)

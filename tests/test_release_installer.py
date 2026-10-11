@@ -90,6 +90,18 @@ class InstallerTests(unittest.TestCase):
         with patch('builtins.input', side_effect=[str(candidate), 'n', str(candidate), '']):
             self.assertEqual(installer.select_root(), candidate.resolve())
 
+    def test_default_root_prefers_current_working_directory(self):
+        with patch.object(installer.Path, 'cwd', return_value=self.root):
+            self.assertEqual(installer.default_install_root(), self.root)
+
+    def test_repo_working_directory_uses_safe_child_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = Path(directory)
+            (current / '.git').mkdir()
+            with patch.object(installer.Path, 'cwd', return_value=current), \
+                    patch.dict(installer.os.environ, {}, clear=True):
+                self.assertEqual(installer.default_install_root(), current.resolve() / 'ColorOS-AVD')
+
     def test_install_form_zero_returns_to_previous_field(self):
         args = type('Args', (), {'bundle': self.bundle / 'manifest.json', 'release': 'latest',
                                  'manifest_sha256': None})()
