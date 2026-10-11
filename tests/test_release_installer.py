@@ -47,8 +47,9 @@ class InstallerTests(unittest.TestCase):
         stack.enter_context(patch.object(installer.subprocess, 'check_output', return_value=''))
         self.runtime = stack.enter_context(patch.object(installer, 'run_runtime'))
 
-    def install(self):
-        return installer.install(self.root, Path('/sdk'), self.bundle / 'manifest.json', 'ColorOS_Test', 5588, self.hardware)
+    def install(self, **options):
+        return installer.install(self.root, Path('/sdk'), self.bundle / 'manifest.json',
+                                 'ColorOS_Test', 5588, self.hardware, **options)
 
     def test_new_install_produces_versioned_runtime_and_local_wrappers(self):
         self.install()
@@ -58,6 +59,49 @@ class InstallerTests(unittest.TestCase):
         for name in ('Start.command', 'Install.command', 'Uninstall.command', 'Setup.command'):
             self.assertTrue((self.root / name).stat().st_mode & 0o111)
         self.runtime.assert_called_once()
+        self.assertFalse(json.loads((self.root / 'local/runtime.json').read_text())['skip_oobe'])
+        self.assertNotIn('--skip-oobe', (self.root / 'Start.command').read_text())
+
+    def test_skip_oobe_is_saved_and_preserved_on_upgrade(self):
+        self.install(skip_oobe=True)
+        self.install()
+        self.assertTrue(json.loads((self.root / 'local/runtime.json').read_text())['skip_oobe'])
+        self.assertIn('--wait --skip-oobe', (self.root / 'Start.command').read_text())
+        installer.start(self.root)
+        self.runtime.assert_called_with(self.root, 'launch.py', ['--skip-oobe'])
+        installer.start(self.root, False)
+        self.runtime.assert_called_with(self.root, 'launch.py', [])
+
+    def test_upgrade_can_disable_saved_skip_oobe(self):
+        self.install(skip_oobe=True)
+        self.install(skip_oobe=False)
+        self.assertFalse(json.loads((self.root / 'local/runtime.json').read_text())['skip_oobe'])
+        self.assertNotIn('--skip-oobe', (self.root / 'Start.command').read_text())
+
+    def test_cli_install_and_start_forward_skip_oobe(self):
+        with patch.object(installer, 'host_check'), \
+                patch.object(installer, 'require_environment', return_value=Path('/sdk')), \
+                patch.object(installer, 'install') as install:
+            with patch.object(sys, 'argv', ['installer.py', 'install', '--root', str(self.root),
+                                           '--skip-oobe', '--start']):
+                installer.main()
+            self.assertIs(install.call_args.kwargs['skip_oobe'], True)
+            self.runtime.assert_called_with(self.root, 'launch.py', ['--skip-oobe'])
+            with patch.object(sys, 'argv', ['installer.py', 'start', '--root', str(self.root), '--skip-oobe']):
+                installer.main()
+            self.runtime.assert_called_with(self.root, 'launch.py', ['--skip-oobe'])
+
+    def test_install_form_skip_oobe_reaches_immediate_start(self):
+        args = type('Args', (), {'bundle': self.bundle / 'manifest.json', 'release': 'latest',
+                                 'manifest_sha256': None, 'skip_oobe': None})()
+        with patch('builtins.input', side_effect=['/sdk', 'ColorOS_Test', '5588', '6', '16',
+                                                 '4', 'invalid', 'n', '2', '/sdk', 'ColorOS_Test',
+                                                 '5588', '6', '16', '4', 'y', '1', 'y']), \
+                patch.object(installer, 'require_environment', return_value=Path('/sdk')), \
+                patch.object(installer, 'install') as install:
+            installer.collect_install_options(self.root, {}, args)
+        self.assertIs(install.call_args.kwargs['skip_oobe'], True)
+        self.runtime.assert_called_with(self.root, 'launch.py', ['--skip-oobe'])
 
     def test_registration_failure_rolls_back_files_and_new_registry(self):
         def fail(*args):
@@ -104,9 +148,9 @@ class InstallerTests(unittest.TestCase):
 
     def test_install_form_zero_returns_to_previous_field(self):
         args = type('Args', (), {'bundle': self.bundle / 'manifest.json', 'release': 'latest',
-                                 'manifest_sha256': None})()
+                                 'manifest_sha256': None, 'skip_oobe': None})()
         values = iter(['/sdk', 'ColorOS_Test', '0', 'ColorOS_Test', '5588', '0',
-                       '5588', '6', '0', '6', '16', '0', '16', '4', '1', 'n'])
+                       '5588', '6', '0', '6', '16', '0', '16', '4', '0', '4', 'n', '1', 'n'])
         with patch('builtins.input', side_effect=lambda _: next(values)), \
                 patch.object(installer, 'require_environment', return_value=Path('/sdk')), \
                 patch.object(installer, 'install') as install:

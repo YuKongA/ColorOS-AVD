@@ -73,6 +73,12 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('checksum mismatch', status)
         run.assert_not_called()
 
+    def test_skip_oobe_option_is_forwarded_to_installer(self):
+        with patch.object(sys, 'argv', ['-', '--skip-oobe']):
+            status, run = self.execute()
+        self.assertEqual(status, 0)
+        self.assertIn('--skip-oobe', run.call_args.args[0])
+
     def test_unlisted_zip_path_never_runs_installer(self):
         status, run = self.execute(extra_file=True)
         self.assertIn('Unexpected installer archive entry', status)

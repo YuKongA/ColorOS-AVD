@@ -183,10 +183,19 @@ def run_runtime(root, script, arguments=(), check=True):
     return subprocess.run([sys.executable, str(path), *arguments], env=environment, check=check)
 
 
+def start(root, skip_oobe=None):
+    if skip_oobe is None:
+        skip_oobe = read_json(root / 'local/runtime.json').get('skip_oobe', False)
+    return run_runtime(root, 'launch.py', ['--skip-oobe'] if skip_oobe else [])
+
+
 def wrappers(root, version):
     import shlex
+    launch_arguments = '--wait'
+    if read_json(root / 'local/runtime.json').get('skip_oobe', False):
+        launch_arguments += ' --skip-oobe'
     for name, script, arguments in (
-            ('Start.command', 'launch.py', '--wait'), ('Setup.command', 'setup.py', ''),
+            ('Start.command', 'launch.py', launch_arguments), ('Setup.command', 'setup.py', ''),
             ('Uninstall.command', 'uninstall.py', '')):
         path = root / name
         path.write_text('#!/bin/zsh\nset -eu\nPROJECT_ROOT="${0:A:h}"\n'
@@ -216,7 +225,7 @@ def progress_label(name):
     return progress
 
 
-def install(root, sdk, manifest_location, name, port, hardware, manifest_sha256=None):
+def install(root, sdk, manifest_location, name, port, hardware, manifest_sha256=None, *, skip_oobe=None):
     root = root.expanduser().resolve()
     if root in (Path('/'), Path.home().resolve()) or (root / '.git').exists():
         raise RuntimeError('请使用独立安装目录，例如 ~/ColorOS-AVD。')
@@ -297,7 +306,10 @@ def install(root, sdk, manifest_location, name, port, hardware, manifest_sha256=
             config = root / 'config'
             config.mkdir(exist_ok=True)
             shutil.copy2(version / 'config/avd.ini', config / 'avd.ini')
-            write_json(root / 'local/runtime.json', {'name': name, 'port': port, 'sdk': str(sdk), 'hardware': hardware})
+            previous_runtime = read_json(root / 'local/runtime.json')
+            selected_skip_oobe = previous_runtime.get('skip_oobe', False) if skip_oobe is None else skip_oobe
+            write_json(root / 'local/runtime.json', {'name': name, 'port': port, 'sdk': str(sdk),
+                                                    'hardware': hardware, 'skip_oobe': selected_skip_oobe})
             write_json(root / 'local/build.json', manifest['build'])
             write_json(root / 'local/installed-release.json', manifest)
             run_runtime(root, 'setup.py', ['--sdk', str(sdk), '--name', name, '--port', str(port)])
@@ -334,10 +346,13 @@ def collect_install_options(root, state, args):
         'ram': str(int(hardware.get('hw.ramSize', '6144')) / 1024),
         'storage': hardware.get('disk.dataPartition.size', '16G').rstrip('G'),
         'cores': hardware.get('hw.cpu.ncore', '4'),
+        'skip_oobe': 'y' if (args.skip_oobe if args.skip_oobe is not None
+                             else state.get('skip_oobe', False)) else 'n',
     }
     fields = (
         ('sdk', 'Android SDK 路径'), ('name', 'AVD 名称'), ('port', 'ADB 控制台端口'),
-        ('ram', '内存 GiB'), ('storage', '存储 GiB'), ('cores', 'CPU 核数'))
+        ('ram', '内存 GiB'), ('storage', '存储 GiB'), ('cores', 'CPU 核数'),
+        ('skip_oobe', '跳过首次开机引导？y/n'))
     index = 0
     while True:
         if index == len(fields):
@@ -345,19 +360,24 @@ def collect_install_options(root, state, args):
                 name, port = values['name'], int(values['port'])
                 ram, storage, cores = float(values['ram']), int(values['storage']), int(values['cores'])
                 hardware = validate_options(name, port, ram, storage, cores)
+                if values['skip_oobe'].lower() not in ('y', 'yes', 'n', 'no'):
+                    raise RuntimeError('跳过首次开机引导请输入 y 或 n。')
+                skip_oobe = values['skip_oobe'].lower() in ('y', 'yes')
             except (RuntimeError, ValueError) as error:
                 print('配置无效：' + str(error))
                 index = max(0, len(fields) - 1)
                 continue
             print('\n安装摘要')
             print(f'目录：{root}\n实例：{name}\n端口：{port}\n资源：{ram:g} GiB RAM / {storage} GiB data / {cores} 核')
+            print('首次开机引导：' + ('跳过，直接进入桌面' if skip_oobe else '保留'))
             choice = input('[1] 开始安装/升级  [2] 重新填写  [0] 返回菜单：').strip()
             if choice == '1':
                 sdk = require_environment(Path(values['sdk']), True)
                 location = args.bundle or release_url(args.release) + 'manifest.json'
-                install(root, sdk, location, name, port, hardware, args.manifest_sha256)
+                install(root, sdk, location, name, port, hardware, args.manifest_sha256,
+                        skip_oobe=skip_oobe)
                 if ask('安装完成后立即启动？y/n', 'y').lower() == 'y':
-                    run_runtime(root, 'launch.py')
+                    start(root, skip_oobe)
                 return
             if choice == '2':
                 index = 0
@@ -401,7 +421,7 @@ def wizard(args):
             if choice == '1':
                 collect_install_options(root, state, args)
             elif choice == '2':
-                run_runtime(root.resolve(), 'launch.py')
+                start(root.resolve(), args.skip_oobe)
             elif choice == '3':
                 if not installed:
                     raise RuntimeError('请先安装固件。')
@@ -442,6 +462,8 @@ def main():
     parser.add_argument('--storage', type=int, default=16)
     parser.add_argument('--cores', type=int, default=4)
     parser.add_argument('--start', action='store_true')
+    parser.add_argument('--skip-oobe', action=argparse.BooleanOptionalAction, default=None,
+                        help='跳过首次开机引导；安装时保存，升级默认沿用原设置')
     parser.add_argument('--delete-data', action='store_true')
     args = parser.parse_args()
     host_check()
@@ -452,11 +474,12 @@ def main():
     if args.action == 'install':
         sdk = require_environment(args.sdk or Path.home() / 'Library/Android/sdk')
         hardware = validate_options(args.name, args.port, args.ram, args.storage, args.cores)
-        install(root, sdk, args.bundle or release_url(args.release) + 'manifest.json', args.name, args.port, hardware, args.manifest_sha256)
+        install(root, sdk, args.bundle or release_url(args.release) + 'manifest.json', args.name, args.port,
+                hardware, args.manifest_sha256, skip_oobe=args.skip_oobe)
         if args.start:
-            run_runtime(root, 'launch.py')
+            start(root, args.skip_oobe)
     elif args.action == 'start':
-        run_runtime(root, 'launch.py')
+        start(root, args.skip_oobe)
     else:
         run_runtime(root, 'uninstall.py', ['--delete-data'] if args.delete_data else [])
 
