@@ -14,7 +14,7 @@ curl -fsSL https://github.com/YuKongA/ColorOS-AVD/releases/latest/download/insta
 
 向导可选择安装目录、AVD 名称、空闲偶数端口、内存、存储和 CPU 核数。默认 **4 核 / 6 GiB RAM / 16 GiB data**，显示为 1272×2772 / 560 dpi。下载和解压时需预留约 20 GiB 宿主机磁盘空间，持续使用和备份需要更多空间；向导会根据实际包大小检查可用空间。
 
-首次安装结束后可立即启动，也可双击安装目录中的 `Start.command`。再次打开该目录的 `Install.command`，可以安装更新、启动、调整资源或卸载。
+首次安装结束后可立即启动，也可双击安装目录中的 `Start.command`。再次打开该目录的 `Install.command`，可以安装升级、启动、调整资源或卸载。向导的输入步骤使用 `0` 返回上一步，安装摘要使用 `2` 重新填写；主菜单可以重新选择安装目录。
 
 ## 离线安装
 

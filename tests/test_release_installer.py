@@ -84,6 +84,23 @@ class InstallerTests(unittest.TestCase):
             self.install()
         self.assertFalse((self.root / 'versions').exists())
 
+    def test_directory_selector_confirms_existing_directory_and_allows_retry(self):
+        candidate = self.root / 'candidate'
+        candidate.mkdir(parents=True)
+        with patch('builtins.input', side_effect=[str(candidate), 'n', str(candidate), '']):
+            self.assertEqual(installer.select_root(), candidate.resolve())
+
+    def test_install_form_zero_returns_to_previous_field(self):
+        args = type('Args', (), {'bundle': self.bundle / 'manifest.json', 'release': 'latest',
+                                 'manifest_sha256': None})()
+        values = iter(['/sdk', 'ColorOS_Test', '0', 'ColorOS_Test', '5588', '0',
+                       '5588', '6', '0', '6', '16', '0', '16', '4', '1', 'n'])
+        with patch('builtins.input', side_effect=lambda _: next(values)), \
+                patch.object(installer, 'require_environment', return_value=Path('/sdk')), \
+                patch.object(installer, 'install') as install:
+            installer.collect_install_options(self.root, {}, args)
+        install.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

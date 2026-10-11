@@ -24,6 +24,60 @@ def ask(prompt, default):
     return answer or str(default)
 
 
+class Back(Exception):
+    """Move one level up in the interactive wizard."""
+
+
+def prompt(prompt, default):
+    value = input(f'{prompt} [{default}]（0 返回上一步）：').strip()
+    if value in ('0', 'b', 'B'):
+        raise Back()
+    return value or str(default)
+
+
+def menu(title, options):
+    print('\n' + title)
+    for index, value in enumerate(options, 1):
+        print(f'[{index}] {value}')
+    print('[0] 返回上一步')
+    while True:
+        value = input('选择：').strip()
+        if value in ('0', 'b', 'B'):
+            raise Back()
+        if value.isdigit() and 1 <= int(value) <= len(options):
+            return int(value) - 1
+        print('请输入列表中的编号。')
+
+
+def select_root(initial=None):
+    """Choose and confirm an owned installation directory before the menu."""
+    if initial is not None:
+        return Path(initial).expanduser().resolve()
+    while True:
+        value = input(f'安装目录 [{Path.home() / "ColorOS-AVD"}]（0 退出）：').strip()
+        if value in ('0', 'q', 'Q'):
+            return None
+        root = Path(value or Path.home() / 'ColorOS-AVD').expanduser().resolve()
+        if root in (Path('/'), Path.home().resolve()) or (root / '.git').exists():
+            print('请选择独立目录，例如 ~/ColorOS-AVD。')
+            continue
+        if root.exists() and not root.is_dir():
+            print('该路径不是目录。')
+            continue
+        state = read_json(root / 'local/runtime.json')
+        installed = read_json(root / 'local/installed-release.json')
+        description = installed.get('version', '未安装')
+        if state.get('name'):
+            description += f' / {state["name"]}'
+        print(f'将使用目录：{root}\n当前状态：{description}')
+        confirmation = input('确认此目录？[Y/n/0 返回]：').strip().lower()
+        if confirmation in ('0', 'b'):
+            continue
+        if confirmation in ('', 'y', 'yes'):
+            return root
+        print('已取消，请重新选择目录。')
+
+
 def read_json(path):
     return json.loads(path.read_text()) if path.is_file() else {}
 
@@ -260,33 +314,72 @@ def install(root, sdk, manifest_location, name, port, hardware, manifest_sha256=
     return manifest
 
 
+def collect_install_options(root, state, args):
+    hardware = state.get('hardware', {})
+    values = {
+        'sdk': str(state.get('sdk', Path.home() / 'Library/Android/sdk')),
+        'name': state.get('name', DEFAULT_NAME),
+        'port': str(state.get('port', DEFAULT_PORT)),
+        'ram': str(int(hardware.get('hw.ramSize', '6144')) / 1024),
+        'storage': hardware.get('disk.dataPartition.size', '16G').rstrip('G'),
+        'cores': hardware.get('hw.cpu.ncore', '4'),
+    }
+    fields = (
+        ('sdk', 'Android SDK 路径'), ('name', 'AVD 名称'), ('port', 'ADB 控制台端口'),
+        ('ram', '内存 GiB'), ('storage', '存储 GiB'), ('cores', 'CPU 核数'))
+    index = 0
+    while True:
+        if index == len(fields):
+            try:
+                name, port = values['name'], int(values['port'])
+                ram, storage, cores = float(values['ram']), int(values['storage']), int(values['cores'])
+                hardware = validate_options(name, port, ram, storage, cores)
+            except (RuntimeError, ValueError) as error:
+                print('配置无效：' + str(error))
+                index = max(0, len(fields) - 1)
+                continue
+            print('\n安装摘要')
+            print(f'目录：{root}\n实例：{name}\n端口：{port}\n资源：{ram:g} GiB RAM / {storage} GiB data / {cores} 核')
+            choice = input('[1] 开始安装/升级  [2] 重新填写  [0] 返回菜单：').strip()
+            if choice == '1':
+                sdk = require_environment(Path(values['sdk']), True)
+                location = args.bundle or release_url(args.release) + 'manifest.json'
+                install(root, sdk, location, name, port, hardware, args.manifest_sha256)
+                if ask('安装完成后立即启动？y/n', 'y').lower() == 'y':
+                    run_runtime(root, 'launch.py')
+                return
+            if choice == '2':
+                index = 0
+                continue
+            index = len(fields) - 1
+            continue
+        key, label = fields[index]
+        try:
+            values[key] = prompt(label, values[key])
+            index += 1
+        except Back:
+            index = max(0, index - 1)
+
+
 def wizard(args):
-    root = Path(args.root or ask('安装目录', Path.home() / 'ColorOS-AVD')).expanduser().resolve()
+    root = select_root(args.root)
+    if root is None:
+        return
     while True:
         state = read_json(root / 'local/runtime.json')
         installed = read_json(root / 'local/installed-release.json')
         print('\nColorOS-AVD 安装向导\n目录：' + str(root))
         print('版本：' + installed.get('version', '未安装'))
-        print('[1] 安装 / 更新   [2] 启动   [3] 调整资源   [4] 卸载   [0] 退出')
+        print('[1] 安装 / 升级   [2] 启动   [3] 调整资源   [4] 卸载   [5] 更换目录   [0] 退出')
         choice = input('选择：').strip()
-        if choice == '0':
-            return
+        if choice == '0': return
+        if choice == '5':
+            selected = select_root()
+            if selected is not None: root = selected
+            continue
         try:
             if choice == '1':
-                sdk = require_environment(Path(ask('Android SDK 路径', state.get('sdk', Path.home() / 'Library/Android/sdk'))), True)
-                name = ask('AVD 名称', state.get('name', DEFAULT_NAME))
-                port = int(ask('ADB 控制台端口', state.get('port', DEFAULT_PORT)))
-                hardware = state.get('hardware', {})
-                ram = float(ask('内存 GiB', int(hardware.get('hw.ramSize', '6144')) / 1024))
-                storage = int(ask('存储 GiB', hardware.get('disk.dataPartition.size', '16G').rstrip('G')))
-                cores = int(ask('CPU 核数', hardware.get('hw.cpu.ncore', '4')))
-                values = validate_options(name, port, ram, storage, cores)
-                location = args.bundle or release_url(args.release) + 'manifest.json'
-                print(f'准备安装到 {root}，名称 {name}，{ram:g} GiB RAM / {storage} GiB data / {cores} 核。')
-                if ask('开始下载并安装？y/n', 'y').lower() == 'y':
-                    install(root, sdk, location, name, port, values, args.manifest_sha256)
-                    if ask('现在启动？y/n', 'y').lower() == 'y':
-                        run_runtime(root.resolve(), 'launch.py')
+                collect_install_options(root, state, args)
             elif choice == '2':
                 run_runtime(root.resolve(), 'launch.py')
             elif choice == '3':
@@ -308,7 +401,9 @@ def wizard(args):
                 delete = ask('同时删除实例数据？y/n', 'n').lower() == 'y'
                 run_runtime(root.resolve(), 'uninstall.py', ['--delete-data'] if delete else [])
             else:
-                print('请选择 0–4。')
+                print('请选择 0–5。')
+        except Back:
+            continue
         except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
             print('操作失败：' + str(error))
 
