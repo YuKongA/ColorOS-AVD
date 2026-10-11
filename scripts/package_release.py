@@ -61,7 +61,6 @@ def verify_images(workspace, scratch):
         if hashlib.sha256(value).hexdigest() != entry['native_sha256']:
             raise RuntimeError('Release Vendor patch mismatch: ' + key)
     from erofs_image import Reader
-    from build_coloros import main
     import ast
     tree = ast.parse((REPO_ROOT / 'scripts/build_coloros.py').read_text())
     removals = next(ast.literal_eval(node.value) for node in ast.walk(tree)
@@ -74,6 +73,10 @@ def verify_images(workspace, scratch):
     for removed in removals:
         if any(path == removed or path.startswith(removed + '/') for path in paths):
             raise RuntimeError('Removed application remains in release: ' + removed)
+    from apk_system_signing import signing_block
+    camera = erofs(scratch / 'system.img', '/my_product/app/OplusCamera/OplusCamera.apk')
+    signing_block(camera)
+    metadata['camera_apk_sha256'] = hashlib.sha256(camera).hexdigest()
     return metadata
 
 

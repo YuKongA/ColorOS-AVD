@@ -93,7 +93,7 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 - 为预览/全景提供独立 NV21 平面副本，避免异步处理复用 buffer；缺失的全景可选 vendor tag 返回 `null`。
 - 重写 DEX 后检查其格式，并重新执行 APK ZIP 对齐，包含 16 KiB 原生库页对齐。
 
-入口：[coloros_camera_buffers.py](../scripts/coloros_camera_buffers.py)、[PatchCameraDex.java](../native/coloros_camera/PatchCameraDex.java)、[VirtualCameraBuffers.java](../native/coloros_camera/VirtualCameraBuffers.java)。这属于修改官方 APK 内容，不能将产物描述为字节不变的原厂 APK。
+入口：[coloros_camera_buffers.py](../scripts/coloros_camera_buffers.py)、[PatchCameraDex.java](../native/coloros_camera/PatchCameraDex.java)、[VirtualCameraBuffers.java](../native/coloros_camera/VirtualCameraBuffers.java)。这属于修改官方 APK 内容，不能将产物描述为字节不变的原厂 APK。重建 ZIP 后通过 [apk_system_signing.py](../scripts/apk_system_signing.py) 保留原厂 APK Signing Block，供可信系统分区扫描读取证书身份；这不等于对修改后的内容重新签名，修改后的 APK 不可作为普通用户 APK 通过完整签名验证安装。项目没有因此全局关闭 Android 应用签名检查。
 
 现有验证记录支持前后摄拍照、部分 720p/1080p 录像及 AAC 音轨、后摄 2×裁剪和专业模式拍照。前摄缩放未通过；实体多摄没有提供；4K/60fps、HDR、夜景算法等没有完整验收。详见 [相机验证记录](coloros-camera-validation.md)，其中不同测试覆盖组合的历史结果需要分别理解。
 

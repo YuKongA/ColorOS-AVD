@@ -18,7 +18,7 @@ DEPENDENCIES = (
 )
 
 
-def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path) -> bytes:
+def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path, *, signing_source: bytes) -> bytes:
     sources = Path(__file__).resolve().parents[1] / 'native/coloros_camera'
     work.mkdir(parents=True, exist_ok=True)
     for name in ('classes', 'dex', 'tool'):
@@ -81,4 +81,8 @@ def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path) -> bytes:
     subprocess.run([str(build_tools / 'zipalign'), '-P', '16', '-f', '4',
                     str(unaligned), str(aligned)], check=True)
     subprocess.run([str(build_tools / 'zipalign'), '-c', '-P', '16', '4', str(aligned)], check=True)
-    return aligned.read_bytes()
+    from apk_system_signing import retain_system_signing
+    result = retain_system_signing(signing_source, aligned.read_bytes())
+    aligned.write_bytes(result)
+    subprocess.run([str(build_tools / 'zipalign'), '-c', '-P', '16', '4', str(aligned)], check=True)
+    return result

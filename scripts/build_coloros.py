@@ -458,7 +458,8 @@ def main():
     raw_camera_apk = erofs(partitions / 'my_product.img', '/app/OplusCamera/OplusCamera.apk')
     from coloros_camera_buffers import patch_camera_buffers_apk
     put('my_product/app/OplusCamera/OplusCamera.apk', patch_camera_buffers_apk(
-        patch_camera_apk(raw_camera_apk), sdk_path(), ROOT / 'work/camera-bridge'))
+        patch_camera_apk(raw_camera_apk), sdk_path(), ROOT / 'work/camera-bridge',
+        signing_source=raw_camera_apk))
     if (partitions / 'odm.img').is_file():
         sec_so = erofs(partitions / 'odm.img', '/lib64/libOplusSecurity.so')
         put('product/lib64/libOplusSecurity.so', sec_so, 0o644, 'u:object_r:system_lib_file:s0')
