@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build an isolated AVD GSI candidate from the official ColorOS 17 OTA."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -455,6 +456,19 @@ def main():
     from connectivity_overlay import build as build_connectivity_overlay
     put('product/overlay/ColorOSConnectivityOverlay/ColorOSConnectivityOverlay.apk',
         build_connectivity_overlay(sdk_path(), ROOT / 'work/connectivity-overlay'))
+    from resource_overlay import build as build_resource_overlay
+    put('product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk',
+        build_resource_overlay(repo / 'native/coloros_aod', sdk_path(),
+                               ROOT / 'work/aod-overlay', 'ColorOSAodOverlay.apk'))
+    from coloros_aod import patch_systemui_apk
+    put('system_ext/priv-app/SystemUI/SystemUI.apk', patch_systemui_apk(
+        erofs(partitions / 'system_ext.img', '/priv-app/SystemUI/SystemUI.apk'),
+        sdk_path(), ROOT / 'work/aod-systemui'))
+    from double_tap_wake import build as build_double_tap_wake
+    wake_dex, wake_library = build_double_tap_wake(sdk_path(), ROOT / 'work/double-tap-wake')
+    put('system_ext/framework/ColorOSDoubleTapWake.dex', wake_dex)
+    put('system_ext/lib64/libcoloros_double_tap.so', wake_library,
+        label='u:object_r:system_lib_file:s0')
 
     # Patch system/build.prop
     prop = normalize_display_properties(prop)
@@ -498,6 +512,9 @@ def main():
     raw_ged_so = erofs(partitions / 'system_ext.img', '/lib64/libged_sys.so')
     put('system_ext/lib64/libged_sys.so', patch_ged_sys(raw_ged_so),
         label='u:object_r:system_lib_file:s0')
+    put('system_ext/lib64/libcomposer_ext.so',
+        apply_native_patch(erofs(partitions / 'system_ext.img', '/lib64/libcomposer_ext.so'),
+                           PROFILES['composer_ext']), label='u:object_r:system_lib_file:s0')
 
     # Put all camera JNI and rendering libraries into product/lib64 with proper system_lib_file context
     my_product_reader = Reader(partitions / 'my_product.img')
@@ -725,6 +742,10 @@ vm.heapSize=256M
         'audio_pcm_fix': audio_manifest,
         'camera_scene_fix': scene_manifest,
         'native_patches': native_patch_receipt(),
+        'double_tap_wake': {
+            'system_ext/framework/ColorOSDoubleTapWake.dex': hashlib.sha256(wake_dex).hexdigest(),
+            'system_ext/lib64/libcoloros_double_tap.so': hashlib.sha256(wake_library).hexdigest(),
+        },
         'adb_authentication': not args.diagnostic_adb,
     }
     (ROOT / 'local/build.json').write_text(json.dumps(metadata, indent=2) + '\n')

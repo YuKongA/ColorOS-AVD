@@ -77,6 +77,23 @@ def verify_images(workspace, scratch):
     camera = erofs(scratch / 'system.img', '/my_product/app/OplusCamera/OplusCamera.apk')
     signing_block(camera)
     metadata['camera_apk_sha256'] = hashlib.sha256(camera).hexdigest()
+    from coloros_aod import PATCHED_DEX_SHA256
+    systemui = erofs(scratch / 'system.img', '/system_ext/priv-app/SystemUI/SystemUI.apk')
+    signing_block(systemui)
+    with zipfile.ZipFile(io.BytesIO(systemui)) as apk:
+        if hashlib.sha256(apk.read('classes3.dex')).hexdigest() != PATCHED_DEX_SHA256:
+            raise RuntimeError('Release SystemUI AOD patch is missing or changed.')
+    metadata['systemui_apk_sha256'] = hashlib.sha256(systemui).hexdigest()
+    overlay = erofs(scratch / 'system.img',
+                    '/product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk')
+    metadata['aod_overlay_sha256'] = hashlib.sha256(overlay).hexdigest()
+    wake_paths = {'system_ext/framework/ColorOSDoubleTapWake.dex',
+                  'system_ext/lib64/libcoloros_double_tap.so'}
+    if set(metadata.get('double_tap_wake', {})) != wake_paths:
+        raise RuntimeError('Rebuild the double-tap wake bridge before publishing.')
+    for path, checksum in metadata['double_tap_wake'].items():
+        if hashlib.sha256(erofs(scratch / 'system.img', '/' + path)).hexdigest() != checksum:
+            raise RuntimeError('Release double-tap wake bridge mismatch: ' + path)
     return metadata
 
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.colorosavd.aod.overlay">
+    <uses-sdk android:minSdkVersion="36" android:targetSdkVersion="36" />
+    <application android:hasCode="false" />
+    <overlay android:targetPackage="android" android:isStatic="true" android:priority="999" />
+</manifest>

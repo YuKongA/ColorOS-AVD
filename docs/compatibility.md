@@ -5,6 +5,9 @@
 ## 已有验证范围
 
 - ColorOS 原生桌面、设置、首次开机引导、相册和壁纸。
+- 原厂全景 AOD 的设置入口、壁纸和时钟显示、关闭及重新开启通过；使用虚拟显示器软件适配，未提供实体面板低功耗能力。详见 [AOD 验证](coloros-aod-validation.md)。
+- 双击亮屏通过主虚拟触摸屏桥接，AOD、黑屏、原厂开关和冷启动验证通过。详见 [双击亮屏验证](coloros-double-tap-validation.md)。
+- 熄屏/亮屏已消除缺失 MTK Composer 扩展服务造成的每次约 2.1 秒阻塞，保留原厂 AOD 过渡时长。详见 [延迟验证](coloros-display-latency-validation.md)。
 - ADB、KernelSU v3.3.0 Root、全局 SELinux Enforcing。
 - Ranchu GPU 合成与播放音频的兼容补丁。
 - 虚拟蜂窝数据与 Wi-Fi 分别通过 HTTPS 联网测试；蓝牙虚拟控制器初始化及 ColorOS 设置页开关通过，配对与音频未验收。详见 [蜂窝与蓝牙验证](coloros-connectivity-validation.md)。

@@ -42,11 +42,26 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 
 重建后冷启动、蜂窝/Wi-Fi HTTPS、移动数据和蓝牙开关的结果见 [蜂窝与蓝牙验证](coloros-connectivity-validation.md)。
 
+### 全景 AOD
+
+Ranchu 缺少 OPPO DisplayPanelFeature HAL，原厂 SystemUI 因而隐藏全景息屏，并在熄屏时直接关闭显示。构建器对已审核的 SystemUI APK 做局部 DEX 修改：仅在缺少 AIDL 服务后使用的 HIDL 回退中，为查询 217 返回软件渲染能力 `[13]`，支持全景及全天显示、避免进场时关闭显示；手机专属的平滑面板切换保持关闭，其他查询返回不支持。
+
+新增框架资源 overlay，绑定原厂 `com.android.systemui.doze.DozeService`，声明软件 AOD 可用性并设置备用 Doze 亮度。原厂设置页、时钟、日期及壁纸渲染保留，未提供手机面板的 1 Hz / LTPO 低功耗能力。与相机 APK 适配一样，修改后的 SystemUI 保留原厂 Signing Block 供可信系统分区识别证书身份，不可作为普通 APK 通过完整签名验证安装；没有关闭全局签名检查。构建实现为 [coloros_aod.py](../scripts/coloros_aod.py) 和 [coloros_aod](../native/coloros_aod/)。
+
+原厂设置页开关、正常熄屏与冷启动验证见 [全景 AOD 验证](coloros-aod-validation.md)。
+
+### 双击亮屏
+
+Ranchu 没有原厂 `/proc/touchpanel/double_tap_enable` 接口或双击唤醒传感器。新增 [double_tap_wake](../native/double_tap_wake/) 适配读取主虚拟触摸屏 `virtio_input_multi_touch_1` 的 evdev 事件，不独占输入设备。短时间内同一区域的两次短按才触发 Android 手势唤醒；单击、长按、滑动、多指及亮屏状态不触发。
+
+Java 桥接读取当前用户的原厂 secure 开关 `oplus_customize_gesture_double_touch_on`，兼容旧开关 `oplus_customize_gesture_double_touch`，并遵循 `disable_gestures`；不会修改这些设置。启动器在 KernelSU 初始化和系统开机完成后启动进程，使用正常 PowerManager 唤醒路径，保留锁屏验证。DEX 与 JNI 库写入系统镜像，发布预检核对构建哈希，全局 SELinux 保持 Enforcing。详见 [双击亮屏验证](coloros-double-tap-validation.md)。
+
 ## 3. 图形与音频兼容
 
 | 文件或设置                                 | 修改                                                                                                           | 解决的问题                                         |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Ranchu composer3 service                   | 修补一条 ARM64 浮点加法指令，使合成器传递原始 plane alpha，避免将其与 brightness 求平均                        | 黑色遮罩淡出后仍半透明、返回动画发暗；保留硬件合成 |
+| `system_ext/lib64/libcomposer_ext.so`       | HIDL 服务查询为空时直接进入原有 `-EHOSTDOWN` 返回，保留正常服务路径                                             | 消除每次屏幕电源状态切换中等待不存在的 MTK 扩展服务所产生的约 2.1 秒阻塞 |
 | `system/lib64/libhwui.so`                  | 找到指定 shader 字符串时，将 `uint outlineType = floatBitsToUint(...)` 替换为整数转换                          | OplusCausticShadowEffect 的 GLSL ES 1.00 语法兼容  |
 | `system_ext/lib64/libgralloc_extra_sys.so` | 将五个固定偏移的函数入口改为返回 `0`                                                                           | 绕过不适用于 AVD buffer 的 MTK 私有检查或操作      |
 | `system_ext/lib64/libged_sys.so`           | 将七个固定偏移的函数入口改为返回 `0`                                                                           | 避免执行真实设备 GPU/GED 私有操作                  |
@@ -55,6 +70,8 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 | `vendor/lib64/libtinyalsav2.so`            | 对播放 `pcm_writei` 的 EIO 错误增加一次 stop/prepare 和一次重试                                                | 修复持续丢失播放样本；此补丁不改录音路径           |
 
 入口：[patch_composer.py](../scripts/patch_composer.py)、[patch_audio.py](../scripts/patch_audio.py) 和 [native_patches.py](../scripts/native_patches.py)。composer、tinyalsa、HWUI、gralloc/GED 补丁均绑定已知输入与输出 SHA-256，并核对修改位置的原字节；gralloc/GED/HWUI 匹配规则同时记录在构建元数据中。
+
+Composer 扩展补丁只修改 `ClientImpl::Init` 中一条 4 字节的空指针条件分支，查询和临时对象清理照常执行。输入和输出哈希、补丁位置及其他字节保持不变均由原生补丁测试核对，构建元数据与发布预检也包含此库。延迟测量见 [熄屏与亮屏延迟验证](coloros-display-latency-validation.md)。
 
 ## 4. 相机 HAL、CameraUnit SDK 与相机 APK
 
@@ -150,9 +167,10 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 | 创建 data 模板 | 创建空白 16 GiB ext4，启用 encrypt/quota/project/casefold；已有模板存在时直接复用                    | [init_userdata.py](../scripts/init_userdata.py)                                  |
 | 启动前         | 保留已有 userdata；按照实例配置核验实际 ext4 容量，暂存并验证 raw/QCOW2 修改，拒绝缩小                                | [launch.py](../scripts/launch.py)、[avd_userdata.py](../scripts/avd_userdata.py) |
 | 启动后扩容     | 读取解密设备的 ext4 超级块，核验容量、UUID 和挂载身份；必要的加密扩容通过有离线备份的受控来宾执行                             | ColorOS fstab 没有自动 resize 标志，仅扩大镜像不足以扩大 ext4                    |
-| 传感器与显示   | 设置 proximity=5、light=200；设置很长的熄屏时间；唤醒屏幕并尝试解除锁屏                              | ColorOS 启动初始化                                                               |
+| 传感器与显示   | 设置 proximity=5、light=200；唤醒屏幕并尝试解除锁屏，保留用户选择的熄屏时间 | ColorOS 启动初始化 |
 | Root 初始化    | 必要时安装设备端 ksud；关闭 KernelSU 的 `selinux_hide`，检查 Root 与 Enforcing；管理器缺失或仅为系统预装时安装到 `/data/app`，提取所需原生库 | ColorOS 启动初始化 |
 | 服务恢复       | 如果 URCC stub 未运行，尝试从 Root shell 补启动                                                      | ColorOS 启动初始化                                                               |
+| 双击亮屏       | 从 Root shell 启动主虚拟触摸屏识别桥接，遵循当前用户的原厂开关                                       | ColorOS 启动初始化；旧镜像缺少适配时跳过                                           |
 | 可选跳过引导   | 仅 `--skip-oobe` 时设置 provisioned/setup complete，禁用当前用户的 bootreg/provision，进入原生桌面   | 不默认删除首次开机引导 APK                                                       |
 
 此前当前实例的 data 已由 6 GiB 扩到 16 GiB，备份了用户数据与加密密钥，冷启动后 `/data` 显示约 10 GiB 可用。已有模板不会因默认值改动被自动重建；当前空白模板为 16 GiB。启动流程负责核验容量，并在扩容前检查镜像占用、保存备份和恢复中断的离线事务。

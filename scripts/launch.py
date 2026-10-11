@@ -23,11 +23,7 @@ def verify_coloros_userdata(config):
 
 
 def wake_display(config):
-    """Wake the display after a cold boot and extend its automatic sleep timeout."""
-    try:
-        adb(config, 'shell', 'settings put system screen_off_timeout 2147483647', timeout=5)
-    except Exception:
-        pass
+    """Wake the display after a cold boot, respecting the user's sleep timeout."""
     try:
         adb(config, 'shell', 'input keyevent 224', timeout=5)
         adb(config, 'shell', 'wm dismiss-keyguard', timeout=5)
@@ -71,6 +67,26 @@ def initialize_root(config):
     return result
 
 
+def start_double_tap_wake(config):
+    """Bridge primary Ranchu touches to the OEM wake setting, using KernelSU."""
+    command = '\n'.join([
+        'set -e',
+        'dex=/system_ext/framework/ColorOSDoubleTapWake.dex',
+        'library=/system_ext/lib64/libcoloros_double_tap.so',
+        # Older release images do not include this adapter.
+        '[ -f "$dex" ] || exit 0',
+        '[ -f "$library" ]',
+        'pidof coloros-double-tap >/dev/null && exit 0',
+        'CLASSPATH="$dex" app_process /system/bin --nice-name=coloros-double-tap '
+        'com.coloros.avd.DoubleTapWake "$library" </dev/null '
+        '>/data/local/tmp/coloros-double-tap.log 2>&1 &',
+        'sleep 1',
+        'pidof coloros-double-tap >/dev/null || '
+        '{ cat /data/local/tmp/coloros-double-tap.log; exit 1; }',
+    ])
+    adb(config, 'shell', 'su -W -c ' + shlex.quote(command), check=True, timeout=15)
+
+
 def initialize(config, bypass_oobe=False):
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
@@ -107,6 +123,7 @@ def initialize(config, bypass_oobe=False):
     adb(config, 'shell',
         "su -W -c 'pidof vendor.oplus.hardware.urcc-service >/dev/null || (/system_ext/bin/vendor.oplus.hardware.urcc-service </dev/null >/dev/null 2>&1 &)'",
         timeout=10)
+    start_double_tap_wake(config)
     wake_display(config)
     if bypass_oobe:
         skip_oobe(config)

@@ -20,6 +20,15 @@ class Profile:
 
 RETURN_ZERO = bytes.fromhex('00008052c0035fd6')
 PROFILES = {
+    'composer_ext': Profile(
+        'system_ext/lib64/libcomposer_ext.so',
+        '6ec1e8ce9fabd1f8fae6066fa3010c52b21546c5a3a9ce872d1c2f168073c1d7',
+        '8b7561b4e1991383ff2b4faf9e7a5efa78fbac2bc06b01c293e95b3d341abf8c',
+        # ClientImpl::Init: after HIDL tryGetService and temporary cleanup,
+        # a null service jumps to the existing -EHOSTDOWN return. Ranchu has
+        # no MTK extension; retrying 21 times blocks SurfaceFlinger for 2.1s
+        # on every power-mode change. The non-null/success path is untouched.
+        (Site(0x18ac8, bytes.fromhex('e8f9ffb4'), bytes.fromhex('881f00b4')),)),
     'bluetooth': Profile(
         'system/lib64/libbluetooth_jni.so',
         '4cd62b0dbfa0cf325721a6e86673ddf68698b30c5e9a7982d4126fb85623594e',
