@@ -53,6 +53,21 @@ class ReleaseFilesTests(unittest.TestCase):
     def test_current_format_is_accepted(self):
         release.validate_manifest(self.manifest())
 
+    def test_new_bundle_omits_helper_and_published_bundle_still_validates(self):
+        value = self.manifest()
+        helper = 'tools/SetWallpaper.dex'
+        self.assertNotIn(helper, value['files'])
+        release.validate_manifest(value)
+        value['files'][helper] = entry(b'legacy helper', mode=0o644)
+        release.validate_manifest(value)
+
+    def test_legacy_helper_still_requires_a_valid_checksum(self):
+        value = self.manifest()
+        value['files']['tools/SetWallpaper.dex'] = entry(b'legacy helper', mode=0o644)
+        value['files']['tools/SetWallpaper.dex']['sha256'] = 'invalid'
+        with self.assertRaisesRegex(RuntimeError, 'checksum'):
+            release.validate_manifest(value)
+
     def test_complete_and_resumed_downloads_require_full_hash(self):
         payload = b'payload'
         with tempfile.TemporaryDirectory() as directory:

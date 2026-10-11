@@ -99,18 +99,22 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 
 ## 5. 壁纸和应用裁剪
 
-构建器将默认主题映射中的三个 Mars 视频壁纸服务替换为 ColorOS `ColorfulWallpaperService`，并将官方静态壁纸复制到 `system/etc` 作为回退。启动器还会在当前组件不是 `ImageWallpaper` 时尝试设置这张静态壁纸。
+构建器保留默认主题映射中的三个 OEM Mars 视频壁纸服务，并将其 BT.709 SDR / HEVC Main 10 视频转成 8-bit AVC，使 Ranchu 解码器可以播放；保留 1272×2772、60 fps、1.7 秒及有限范围 BT.709 标记。默认组件仍为 `Mars1VideoWallpaper`、`Mars2VideoWallpaper` 和 `Mars3VideoWallpaper`。启动器不设置壁纸；原厂静态资源保留在 OTA 的原有路径，自定义静态壁纸辅助程序及 `system/etc` 副本已移除。
 
-当前构建移除列表共 21 个应用。删除整个目录，包括 APK、oat 和相关 sidecar 文件：
+该转码是有损的 10-bit 到 8-bit 兼容处理，不是系统全局色域补丁。设备解码错误、三种壁纸播放和颜色抽样记录见 [动态壁纸验证](coloros-wallpaper-validation.md)。
+
+当前构建移除用户指定的应用壳，未列入名单的系统组件保留。删除的应用目录包括 APK、oat 和相关 sidecar 文件：
 
 | 应用             | 镜像中的删除目录                              |
 | ---------------- | --------------------------------------------- |
-| 我的 OPPO        | `my_stock/priv-app/MyDevices`                 |
+| 我的 OPPO        | `my_stock/del-app/KeKeUserCenterMember`       |
 | OPPO 商城        | `my_stock/del-app/OPPOStore`                  |
 | 小游戏           | `my_stock/del-app/OplusQuickGame`             |
 | 游戏中心         | `my_stock/del-app/Gamecenter`                 |
 | 指南针           | `my_stock/del-app/OppoCompass2`               |
 | 笔记             | `my_stock/del-app/OppoNote2`                  |
+| 笔记本           | `my_stock/del-app/AIPaper`                    |
+| AI 拍一拍        | `my_stock/del-app/OcrScanner`                 |
 | 录音             | `my_stock/del-app/NewSoundRecorder`           |
 | 邮件             | `my_stock/del-app/OplusEmail`                 |
 | 文档阅读器       | `my_stock/del-app/OplusDocumentsReader`       |
@@ -127,7 +131,7 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 | 书城             | `my_product/del-app/heytapbook`               |
 | 红外遥控         | `my_product/priv-app/RemoteControl`           |
 
-这些删除在重新构建时应用。Android `DocumentsUI`、媒体播放器 `VideoGallery` 与系统卡包 `TasWallet` 不在上述列表中。
+这些删除在重新构建时应用。`MyDevices`、媒体播放器 `VideoGallery`、Android `DocumentsUI` 以及其他未列入名单的系统组件会保留。
 
 ## 6. AVD 默认值与启动后的操作
 
@@ -140,7 +144,7 @@ EROFS 合并器保留来源文件的 UID/GID、权限、扩展属性及 SELinux 
 | 启动前         | 保留已有 userdata；按照实例配置核验实际 ext4 容量，暂存并验证 raw/QCOW2 修改，拒绝缩小                                | [launch.py](../scripts/launch.py)、[avd_userdata.py](../scripts/avd_userdata.py) |
 | 启动后扩容     | 读取解密设备的 ext4 超级块，核验容量、UUID 和挂载身份；必要的加密扩容通过有离线备份的受控来宾执行                             | ColorOS fstab 没有自动 resize 标志，仅扩大镜像不足以扩大 ext4                    |
 | 传感器与显示   | 设置 proximity=5、light=200；设置很长的熄屏时间；唤醒屏幕并尝试解除锁屏                              | ColorOS 启动初始化                                                               |
-| Root 初始化    | 必要时安装设备端 ksud；关闭 KernelSU 的 `selinux_hide`，检查 Root 与 Enforcing；管理器缺失时补装     | ColorOS 启动初始化                                                               |
+| Root 初始化    | 必要时安装设备端 ksud；关闭 KernelSU 的 `selinux_hide`，检查 Root 与 Enforcing；管理器缺失或仅为系统预装时安装到 `/data/app`，提取所需原生库 | ColorOS 启动初始化 |
 | 服务恢复       | 如果 URCC stub 未运行，尝试从 Root shell 补启动                                                      | ColorOS 启动初始化                                                               |
 | 可选跳过引导   | 仅 `--skip-oobe` 时设置 provisioned/setup complete，禁用当前用户的 bootreg/provision，进入原生桌面   | 不默认删除首次开机引导 APK                                                       |
 

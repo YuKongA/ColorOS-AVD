@@ -26,7 +26,7 @@ class InstallerTests(unittest.TestCase):
         self.registry = base / 'registry'
         self.registry.mkdir()
         payloads = {'images/system.img': b'system', 'images/encryptionkey.img': b'keys',
-                    'images/userdata.img': b'empty', 'tools/SetWallpaper.dex': b'dex',
+                    'images/userdata.img': b'empty', 'tools/ksud-aarch64-linux-android': b'ksud',
                     'config/avd.ini': b'target=android-37.0\nhw.cpu.arch=arm64\n'}
         part = self.bundle / 'fixture.tar.xz.part001'
         with tarfile.open(part, 'w:xz') as tar:

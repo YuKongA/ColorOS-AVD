@@ -22,34 +22,12 @@ def verify_coloros_userdata(config):
     return verify_and_grow(config, int(storage.removesuffix('G')) * 1024**3, allow_grow=False)
 
 
-def apply_coloros_defaults(config):
-    """Seed official ColorOS static wallpaper and display defaults on first boot."""
-    try:
-        wp_state = adb(config, 'shell', 'dumpsys wallpaper | grep "mWallpaperComponent="',
-                       capture_output=True, text=True, timeout=5).stdout
-        if 'com.android.systemui.wallpapers.ImageWallpaper' not in wp_state:
-            dex = ROOT / 'tools/SetWallpaper.dex'
-            if not dex.is_file():
-                dex = Path(__file__).resolve().parent.parent / 'tools/SetWallpaper.dex'
-            if dex.is_file():
-                remote = '/data/local/tmp/SetWallpaper.dex'
-                adb(config, 'push', str(dex), remote, check=True, timeout=15)
-                adb(config, 'shell',
-                    f'CLASSPATH={remote} app_process /data/local/tmp SetWallpaper /my_product/decouping_wallpaper/default/default_wallpaper.webp',
-                    check=True, timeout=15)
-                adb(config, 'shell', f'rm -f {remote}', timeout=5)
-                print('ColorOS official wallpaper seeded successfully.', flush=True)
-    except Exception as err:
-        print('Notice: Wallpaper auto-seed skipped:', err, flush=True)
-
+def wake_display(config):
+    """Wake the display after a cold boot and extend its automatic sleep timeout."""
     try:
         adb(config, 'shell', 'settings put system screen_off_timeout 2147483647', timeout=5)
     except Exception:
         pass
-
-
-def wake_display(config):
-    """Make a cold boot visible even when userdata preserved an asleep display."""
     try:
         adb(config, 'shell', 'input keyevent 224', timeout=5)
         adb(config, 'shell', 'wm dismiss-keyguard', timeout=5)
@@ -126,7 +104,6 @@ def initialize(config, bypass_oobe=False):
     else:
         raise RuntimeError('Boot did not finish within 5 minutes. Inspect logs/emulator-current.log.')
     capacity = verify_coloros_userdata(config)
-    apply_coloros_defaults(config)
     adb(config, 'shell',
         "su -W -c 'pidof vendor.oplus.hardware.urcc-service >/dev/null || (/system_ext/bin/vendor.oplus.hardware.urcc-service </dev/null >/dev/null 2>&1 &)'",
         timeout=10)
@@ -134,7 +111,17 @@ def initialize(config, bypass_oobe=False):
     if bypass_oobe:
         skip_oobe(config)
     manager = adb(config, 'shell', 'pm path me.weishu.kernelsu', capture_output=True, text=True, timeout=15)
-    if 'package:' not in manager.stdout:
+    # The release APK keeps its native library compressed. A copy under
+    # /system/app without a native library sidecar is therefore visible
+    # to PackageManager but its libkernelsu.so is not extracted, so launching
+    # the manager crashes with UnsatisfiedLinkError.  Install a data copy when
+    # the only registered package is the system preinstall; pm extracts the
+    # native library into /data/app/.../lib/ for the linker.
+    system_manager = any(
+        line.removeprefix('package:').split('=', 1)[0].startswith(('/system/', '/product/', '/my_'))
+        for line in manager.stdout.splitlines() if line.startswith('package:')
+    )
+    if 'package:' not in manager.stdout or system_manager:
         apk = ROOT / 'tools/KernelSU_v3.3.0_32601-release.apk'
         if not apk.is_file():
             apk = Path(__file__).resolve().parent.parent / 'tools/KernelSU_v3.3.0_32601-release.apk'

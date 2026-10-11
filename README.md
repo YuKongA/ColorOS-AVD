@@ -7,7 +7,7 @@
 | 项目     | 配置                                                   |
 | -------- | ------------------------------------------------------ |
 | 系统     | ColorOS 17 / Android 17（API 37）                      |
-| 官方固件 | OPPO Find X10 Pro Max / `PMX110_17.0.0.114(CN01)`                              |
+| 官方固件 | OPPO Find X10 Pro Max / `PMX110_17.0.0.114(CN01)`      |
 | 硬件基底 | API 36 ARM64 revision 7 Ranchu Vendor / 4 KiB GKI 内核 |
 | 默认资源 | 4 核 / 6 GiB RAM / 16 GiB 数据分区                     |
 | 显示     | 1272 × 2772 / 560 dpi                                  |

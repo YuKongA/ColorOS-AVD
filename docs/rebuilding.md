@@ -14,9 +14,9 @@
 
 依赖安装见 [安装与启动](installing.md)。KernelSU v3.3.0 工具、android15-6.6 LKM 和管理器缓存到工作区 `tools/`，缺失时自动下载并校验；Python CA 验证失败时可回退到 macOS 系统 HTTPS，证书与域名验证继续启用；根目录 `tools/` 中的同名文件可作为离线缓存。
 
-两个 OPPO stub 服务由 `native/urcc_service.cpp` 和 `native/sendextcamcmd_service.cpp` 自动编译，产物写入工作区 `work/native-services/`，无需在根目录 `tools/` 手动准备服务二进制。需要 NDK 的 ARM64 API 35 编译器。壁纸启动辅助文件为随源码提供的 `tools/SetWallpaper.dex`。
+两个 OPPO stub 服务由 `native/urcc_service.cpp` 和 `native/sendextcamcmd_service.cpp` 自动编译，产物写入工作区 `work/native-services/`，无需在根目录 `tools/` 手动准备服务二进制。需要 NDK 的 ARM64 API 35 编译器。构建还需要宿主机 `ffmpeg`，用于把 OEM Mars 动态壁纸从 HEVC Main 10 转成 Ranchu 可解码的 8-bit AVC；默认 Mars 组件映射保持不变。
 
-目录约定：`native/` 保存 Android 适配源码，`tools/` 保存外部工具、离线缓存和壁纸 DEX，`scripts/` 保存构建与启动逻辑，`tests/` 保存验证代码；生成的镜像、编译产物、依赖缓存和用户数据位于 `work/coloros/`。
+目录约定：`native/` 保存 Android 适配源码，`tools/` 保存外部工具和离线缓存，`scripts/` 保存构建与启动逻辑，`tests/` 保存验证代码；生成的镜像、编译产物、依赖缓存和用户数据位于 `work/coloros/`。
 
 ## 构建与产物
 

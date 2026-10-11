@@ -45,7 +45,7 @@ python3 scripts/installer.py install --bundle /path/to/manifest.json \
 | `Setup.command` | 重新注册已有镜像 |
 | `Uninstall.command` | 移除 AVD 注册，默认保留数据 |
 
-启动时可传入 `--skip-oobe` 跳过首次开机引导、`--headless` 隐藏窗口、`--kill` 关闭当前实例后重启。直接从 Android Studio 启动不会执行项目的 Root、传感器、壁纸和容量验证初始化。
+启动时可传入 `--skip-oobe` 跳过首次开机引导、`--headless` 隐藏窗口、`--kill` 关闭当前实例后重启。直接从 Android Studio 启动不会执行项目的 Root、传感器和容量验证初始化。项目启动器会保留原厂默认壁纸和用户设置的壁纸。
 
 版本固件与对应启动代码位于 `versions/版本号/`，实例的 userdata 和加密密钥位于 `avd/`。安装更新前需关闭目标模拟器；已有实例会先保存完整数据备份，检查用户数据家族与加密模板，再切换固件。存储只允许增大，保数据降级和跨不兼容固件迁移会被拒绝。
 

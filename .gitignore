@@ -25,7 +25,6 @@
 
 /tools/*
 !/tools/README.md
-!/tools/SetWallpaper.dex
 
 __pycache__/
 *.py[cod]

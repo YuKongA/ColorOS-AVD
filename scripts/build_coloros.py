@@ -146,6 +146,30 @@ def patch_camera_sdk_jar(data: bytes, diagnostic_log=False) -> bytes:
     return buf_out.getvalue()
 
 
+def transcode_wallpaper_video(source: Path, destination: Path) -> bytes:
+    """Make the OEM Mars video decodable by the Ranchu media codec.
+
+    The OTA videos are BT.709 SDR but use HEVC Main 10.  Ranchu's bundled
+    HEVC decoder cannot parse that profile, while its 8-bit AVC decoder can.
+    Keep the source dimensions, frame rate and limited-range BT.709 signalling
+    so the wallpaper artwork and luminance mapping stay unchanged.
+    """
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        raise RuntimeError('Install ffmpeg to transcode the OEM Mars wallpapers.')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([
+        ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-i', str(source),
+        '-map', '0:v:0', '-an',
+        '-vf', 'scale=in_range=tv:out_range=tv:in_color_matrix=bt709:out_color_matrix=bt709,format=yuv420p',
+        '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-threads', '4',
+        '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-color_range', 'tv',
+        '-colorspace', 'bt709', '-color_trc', 'bt709', '-color_primaries', 'bt709',
+        '-movflags', '+faststart', str(destination)
+    ], check=True)
+    return destination.read_bytes()
+
+
 def patch_camera_apk(data: bytes) -> bytes:
     """Disable only the private-ISP quick-JPEG request in BaseMode.
 
@@ -544,24 +568,17 @@ def main():
     ksu_apk = (ROOT / 'tools/KernelSU_v3.3.0_32601-release.apk').read_bytes()
     put('system/app/KernelSU/KernelSU.apk', ksu_apk)
 
-    # Patch default wallpaper: Replace broken Mars video wallpaper with ColorOS native ColorfulEngine
-    theme_maps = erofs(partitions / 'my_product.img', '/decouping_wallpaper/default/phone_color_default_theme_maps.xml')
-    theme_maps = theme_maps.replace(
-        b'com.android.wallpaper.livepicker/.service.video.Mars1VideoWallpaper',
-        b'com.heytap.colorfulengine/.wallpaper.service.ColorfulWallpaperService'
-    ).replace(
-        b'com.android.wallpaper.livepicker/.service.video.Mars2VideoWallpaper',
-        b'com.heytap.colorfulengine/.wallpaper.service.ColorfulWallpaperService'
-    ).replace(
-        b'com.android.wallpaper.livepicker/.service.video.Mars3VideoWallpaper',
-        b'com.heytap.colorfulengine/.wallpaper.service.ColorfulWallpaperService'
-    )
-    put('my_product/decouping_wallpaper/default/phone_color_default_theme_maps.xml', theme_maps)
-
-    # Provide fallback static wallpaper in system/etc
-    default_wp = erofs(partitions / 'my_product.img', '/decouping_wallpaper/default/default_wallpaper.webp')
-    put('system/etc/default_wallpaper.png', default_wp)
-    put('system/etc/default_wallpaper.webp', default_wp)
+    # Keep the OEM Mars components as the default wallpaper.  The OTA videos
+    # are BT.709 SDR HEVC Main 10, which the Ranchu HEVC decoder cannot parse;
+    # transcode only the video payload to 8-bit AVC while retaining the OEM
+    # component mapping and visual content.
+    wallpaper_root = '/decouping_wallpaper/default/liveWallpaper/'
+    (ROOT / 'work' / 'wallpaper-source').mkdir(parents=True, exist_ok=True)
+    for name in ('Mars_1.mp4', 'Mars_2.mp4', 'Mars_3.mp4'):
+        source = ROOT / 'work' / 'wallpaper-source' / name
+        source.write_bytes(erofs(partitions / 'my_product.img', wallpaper_root + name))
+        data = transcode_wallpaper_video(source, ROOT / 'work' / 'wallpaper-avc' / name)
+        put('my_product' + wallpaper_root + name, data)
 
     image = ROOT / 'work/coloros-system.img'
     merge_list = [
@@ -583,30 +600,32 @@ def main():
     removals = (
         'product/framework/oat/arm64/com.oplus.camera.unit.sdk.odex',
         'product/framework/oat/arm64/com.oplus.camera.unit.sdk.vdex',
-        # Optional ColorOS/HeyTap consumer apps requested for the AVD image.
-        # Remove whole app directories so APKs, oat files and native sidecars
-        # cannot remain discoverable after a rebuild.
-        'my_stock/priv-app/MyDevices',             # 我的 OPPO
+        # Remove the requested application shells. The similarly named system
+        # components that were not requested (for example VideoGallery and
+        # MyDevices) remain in the merged image.
+        'my_stock/del-app/KeKeUserCenterMember',   # 我的 OPPO
         'my_stock/del-app/OPPOStore',              # OPPO 商城
         'my_stock/del-app/OplusQuickGame',         # 小游戏
         'my_stock/del-app/Gamecenter',             # 游戏中心
         'my_stock/del-app/OppoCompass2',           # 指南针
         'my_stock/del-app/OppoNote2',              # 笔记
+        'my_stock/del-app/AIPaper',                # NoteBook/笔记
+        'my_stock/del-app/OcrScanner',             # AI 拍一拍
         'my_stock/del-app/NewSoundRecorder',       # 录音
         'my_stock/del-app/OplusEmail',             # 邮件
         'my_stock/del-app/OplusDocumentsReader',   # 文档阅读器
         'my_stock/del-app/OppoTranslation',        # 翻译
-        'my_stock/del-app/FamilyGuard',             # 家人守护
-        'my_stock/del-app/Tips',                    # 使用技巧
-        'my_stock/del-app/OPBreathMode',            # 禅定空间
-        'my_stock/priv-app/TravelEngine',           # 逍遥游
-        'my_stock/del-app/BackupAndRestore',        # 手机搬家
-        'my_stock/del-app/BrowserVideo',            # OPPO 视频
-        'my_stock/del-app/Music',                   # 音乐
-        'my_stock/del-app/FinShellWallet',          # 钱包
+        'my_stock/del-app/FamilyGuard',            # 家人守护
+        'my_stock/del-app/Tips',                   # 使用技巧
+        'my_stock/del-app/OPBreathMode',           # 禅定空间
+        'my_stock/priv-app/TravelEngine',          # 逍遥游
+        'my_stock/del-app/BackupAndRestore',       # 手机搬家
+        'my_stock/del-app/BrowserVideo',           # OPPO 视频
+        'my_stock/del-app/Music',                  # 音乐
+        'my_stock/del-app/FinShellWallet',         # 钱包
         'my_product/del-app/SogouInput_U_Product_Del',  # 搜狗输入法定制版
-        'my_product/del-app/heytapbook',            # 书城
-        'my_product/priv-app/RemoteControl',        # 红外遥控
+        'my_product/del-app/heytapbook',           # 书城
+        'my_product/priv-app/RemoteControl',       # 红外遥控
     )
     build(image, merge_list, ROOT / 'work/official-tree', replacements, removals=removals)
 

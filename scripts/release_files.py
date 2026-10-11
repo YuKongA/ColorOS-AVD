@@ -20,7 +20,10 @@ IMAGE_FILES = (
     'encryptionkey.img', 'kernel-ranchu', 'kernel_cmdline.txt', 'ramdisk.img',
     'source.properties', 'system.img', 'vendor.img', 'userdata.img',
 )
-TOOLS = ('ksud-aarch64-linux-android', 'KernelSU_v3.3.0_32601-release.apk', 'SetWallpaper.dex')
+TOOLS = ('ksud-aarch64-linux-android', 'KernelSU_v3.3.0_32601-release.apk')
+# Accept the unused helper in already published bundles, without requiring or
+# adding it to new bundles. Its manifest hash is still checked on extraction.
+LEGACY_FILES = frozenset({'tools/SetWallpaper.dex'})
 FAMILY = 'coloros-pmx110-api37-ranchu-4k'
 
 
@@ -37,6 +40,7 @@ def allowed_file(path):
             or path in {'tools/' + name for name in TOOLS}
             or path in {'runtime/scripts/' + name for name in RUNTIME_SCRIPTS}
             or path == 'config/avd.ini'
+            or path in LEGACY_FILES
             or path.startswith(('images/data/misc/emulator/', 'images/data/misc/modem_simulator/')))
 
 

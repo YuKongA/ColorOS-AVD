@@ -114,7 +114,7 @@ def package(workspace, directory, version, part_mib=256, preset=6, threads=2):
             if names != {'.', '..', 'lost+found'}:
                 raise RuntimeError('Release userdata is not empty.')
             for name in TOOLS:
-                paths['tools/' + name] = REPO_ROOT / 'tools/SetWallpaper.dex' if name == 'SetWallpaper.dex' else workspace / 'tools' / name
+                paths['tools/' + name] = workspace / 'tools' / name
                 if name in KSU_ASSETS and sha256(paths['tools/' + name]) != KSU_ASSETS[name]:
                     raise RuntimeError('KernelSU release hash mismatch.')
             paths['config/avd.ini'] = workspace / 'config/avd.ini'
