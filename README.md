@@ -26,36 +26,19 @@
   </tr>
 </table>
 
-## 构建与启动
+## 安装与启动
 
-需要 Apple Silicon Mac、Python 3、JDK、Android Studio SDK 和 Android NDK。SDK 版本及工具准备见 [安装与启动](docs/installing.md)。
-
-```sh
-brew install erofs-utils e2fsprogs lz4
-```
-
-将配套官方 OTA ZIP 放入 `rom/`，关闭 ColorOS 模拟器后构建：
+在 Apple Silicon Mac 终端执行：
 
 ```sh
-python3 scripts/build_coloros.py
+curl -fsSL https://github.com/YuKongA/ColorOS-AVD/releases/latest/download/install.sh | bash
 ```
 
-也可双击 `Build-ColorOS.command`。构建完成后启动：
+安装向导提供目录、实例名称、端口和资源配置，下载并校验固件。需要 Python 3、Android Emulator / Platform-Tools 和 `e2fsprogs`；运行发布版无需 OTA、JDK 或 NDK。
 
-```sh
-./Start-ColorOS.command
-```
+安装完成后双击安装目录中的 `Start.command` 启动，`Install.command` 用于管理和更新，`Uninstall.command` 用于卸载。安装及数据保留说明见 [安装与启动](docs/installing.md)。
 
-添加 `--skip-oobe` 可跳过首次开机引导。已有用户数据会保留。
-
-关闭模拟器后，双击 `Uninstall-ColorOS.command` 可移除 AVD 注册并保留数据；删除数据的选项见 [卸载说明](docs/installing.md#卸载)。
-
-连接模拟器或进入 Root shell：
-
-```sh
-adb -s emulator-5574 shell
-adb -s emulator-5574 shell su -W -c id
-```
+从源码构建使用 `Build-ColorOS.command`，步骤见 [重新构建](docs/rebuilding.md)。
 
 ## 文档
 
