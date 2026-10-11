@@ -379,8 +379,17 @@ def wizard(args):
     while True:
         state = read_json(root / 'local/runtime.json')
         installed = read_json(root / 'local/installed-release.json')
-        print('\nColorOS-AVD 安装向导\n目录：' + str(root))
-        print('版本：' + installed.get('version', '未安装'))
+        avd = root / 'avd' / (state.get('name', DEFAULT_NAME) + '.avd') if state.get('name') else None
+        backups = len(list((root / 'backups').glob('*'))) if (root / 'backups').is_dir() else 0
+        print('\n' + '=' * 68)
+        print('ColorOS-AVD 安装向导')
+        print('目录：' + str(root))
+        print('版本：' + installed.get('version', '未安装') +
+              '  |  实例：' + state.get('name', '未注册') +
+              '  |  备份：' + str(backups))
+        print('数据：' + ('已创建' if avd and avd.exists() else '未创建') +
+              '  |  可输入 0 返回上一步')
+        print('=' * 68)
         print('[1] 安装 / 升级   [2] 启动   [3] 调整资源   [4] 卸载   [5] 更换目录   [0] 退出')
         choice = input('选择：').strip()
         if choice == '0': return

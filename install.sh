@@ -4,7 +4,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo '需要 Python 3。请安装 Python 3 后重新执行。' >&2
   exit 1
 fi
-python3 - <<'COLOROS_BOOTSTRAP_PY'
+python3 - "$@" <<'COLOROS_BOOTSTRAP_PY'
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -271,9 +271,11 @@ try:
         # Both curl | bash and Python's heredoc consume stdin. The wizard
         # reads directly from the terminal, leaving download input separate.
         with open('/dev/tty', 'r') as terminal:
+            # Preserve explicit CLI options such as --root, --name and --sdk
+            # from curl | bash while pinning the verified release metadata.
             result = subprocess.call([sys.executable, str(root / 'scripts/installer.py'),
                                       '--release', version, '--manifest-sha256',
-                                      receipt['firmware_manifest_sha256']], stdin=terminal)
+                                      receipt['firmware_manifest_sha256'], *sys.argv[1:]], stdin=terminal)
         raise SystemExit(result)
 except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as error:
     raise SystemExit('安装向导启动失败：' + str(error))
