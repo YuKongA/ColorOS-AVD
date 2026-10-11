@@ -97,7 +97,7 @@ def write_installer(directory, version):
     return receipt
 
 
-def package(workspace, directory, version, part_mib=1536, preset=6, threads=2):
+def package(workspace, directory, version, part_mib=256, preset=6, threads=2):
     directory.mkdir(parents=True, exist_ok=False)
     try:
         with tempfile.TemporaryDirectory(prefix='release-preflight-', dir=workspace / 'work') as temporary:
@@ -180,7 +180,7 @@ def main():
     parser.add_argument('--workspace', type=Path, default=REPO_ROOT / 'work/coloros-release-r1')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--version', default='v0.1.0-coloros17-r1')
-    parser.add_argument('--part-mib', type=int, default=1536)
+    parser.add_argument('--part-mib', type=int, default=256)
     parser.add_argument('--preset', type=int, choices=range(10), default=6)
     parser.add_argument('--threads', type=int, default=2)
     args = parser.parse_args()

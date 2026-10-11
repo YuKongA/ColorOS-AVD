@@ -22,7 +22,7 @@ python3 scripts/package_release.py --workspace work/coloros-release-r1 \
   --version v0.1.0-coloros17-r1 --threads 6
 ```
 
-输出默认位于 `work/releases/版本号/`。固件使用 xz preset 6，默认按 1536 MiB 分卷，保证每件附件小于 GitHub 的 2 GiB 限制。压缩率和下载包大小与原始稀疏文件的逻辑大小不同。
+输出默认位于 `work/releases/版本号/`。固件使用 xz preset 6，默认按 256 MiB 分卷，便于上传及断点续传，并保证每件附件小于 GitHub 的 2 GiB 限制。压缩率和下载包大小与原始稀疏文件的逻辑大小不同。
 
 附件包含：
 
