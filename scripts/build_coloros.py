@@ -11,9 +11,10 @@ import struct
 import subprocess
 import zipfile
 
+from firmware_profile import (FIX_CAMERA_SDK, FIX_ETHERNET_FEATURE, FIX_FLAT_DISPLAY,
+                              FIX_LAUNCHER_UNIRENDER, FIX_QTI_PERF_PRELOAD, PORT_AOD, PORT_CAMERA,
+                              PORT_DOUBLE_TAP, PORT_MTK_GRAPHICS, profile_for_archive)
 from native_patches import PROFILES, apply as apply_native_patch, receipt as native_patch_receipt
-
-SOURCE_SHA256 = '9b05a00858b964a3fc5891a1873c91ad38aa4786fb729c1a19748214adb868ae'
 
 
 def build_native_service(source: Path, sdk: Path, destination: Path) -> bytes:
@@ -217,6 +218,12 @@ def virtual_camera_config(data: bytes) -> bytes:
     fails while selecting a Size, before submitting a Camera2 session.
     """
     config = json.loads(data.decode('utf-8'))
+    # The Ranchu camera bridge supplies the vendor tags of the SDK's MTK path.
+    # The Qualcomm path reads tags it lacks, such as com.oplus.sensor.timestamp,
+    # and the first capture then crashes. PMX110 already declares mtk.
+    if 'platform' not in config['device_info']:
+        raise RuntimeError('Unexpected CameraUnit device_info')
+    config['device_info']['platform'] = 'mtk'
     ordinary = {'preview', 'capture', 'capture_yuv', 'video',
                 'video_recorder', 'preview_frame'}
     config['camera_id_list'] = ['0', '1']
@@ -277,6 +284,8 @@ def main():
     parser.add_argument('--zip', type=Path, default=repo / 'rom/9edada09fc494e0cac8151f3ba336907.zip')
     parser.add_argument('--partitions', type=Path, default=repo / 'work/coloros/input/partitions')
     parser.add_argument('--workspace', type=Path, default=repo / 'work/coloros')
+    parser.add_argument('--name', default='ColorOS17_API37', help='AVD name to register')
+    parser.add_argument('--port', type=int, default=5574, help='Even emulator console port')
     parser.add_argument('--diagnostic-adb', action='store_true',
                         help='Temporarily disable ADB authentication on this isolated candidate')
     args = parser.parse_args()
@@ -298,14 +307,13 @@ def main():
     from setup import configure
 
     host_check()
-    firmware_idle(5574)
+    firmware_idle(args.port)
 
     if not args.zip.is_file():
         raise RuntimeError(f'ColorOS OTA zip not found at {args.zip}')
 
     archive_sha256 = sha256(args.zip)
-    if archive_sha256 != SOURCE_SHA256:
-        raise RuntimeError(f'Unsupported ColorOS OTA SHA-256: {archive_sha256}; expected {SOURCE_SHA256}')
+    firmware = profile_for_archive(archive_sha256)
 
     base = sdk_path() / 'system-images/android-36/google_apis_playstore/arm64-v8a'
     if not base.is_dir() or 'Pkg.Revision=7' not in (base / 'source.properties').read_text().splitlines():
@@ -400,8 +408,10 @@ def main():
     content = vendor.read_bytes()
     if content.count(fstab) != 1 or content.count(b'ro.zygote.disable_gl_preload=1') != 1:
         raise RuntimeError('Unexpected ranchu vendor layout.')
-    vendor.write_bytes(content.replace(fstab, patched_fstab).replace(
-        b'ro.zygote.disable_gl_preload=1', b'ro.zygote.disable_gl_preload=0'))
+    content = content.replace(fstab, patched_fstab)
+    if firmware.gl_preload:
+        content = content.replace(b'ro.zygote.disable_gl_preload=1', b'ro.zygote.disable_gl_preload=0')
+    vendor.write_bytes(content)
 
     composer_manifest = build_vendor(vendor, ROOT / 'work/vendor-alpha-fixed.img',
                                      ROOT / 'work/vendor-alpha-tree')
@@ -415,7 +425,8 @@ def main():
                                         ROOT / 'work/vendor-scene', sdk_path())
     (ROOT / 'work/vendor-scene-fixed.img').replace(vendor)
 
-    if (partitions / 'odm.img').is_file():
+    if ((PORT_CAMERA in firmware.ports or FIX_CAMERA_SDK in firmware.fixes)
+            and (partitions / 'odm.img').is_file()):
         print('Baking ODM camera configs into vendor image...', flush=True)
         odm_reader = Reader(partitions / 'odm.img')
         camera_configs = {}
@@ -453,22 +464,46 @@ def main():
     def put(path, data, mode=0o644, label='u:object_r:system_file:s0'):
         replacements[path] = (data, mode, label)
 
+    from resource_overlay import build as build_resource_overlay
+    if FIX_FLAT_DISPLAY in firmware.fixes:
+        put('product/overlay/ColorOSDisplayOverlay/ColorOSDisplayOverlay.apk',
+            build_resource_overlay(repo / 'native/coloros_display', sdk_path(),
+                                   ROOT / 'work/display-overlay', 'ColorOSDisplayOverlay.apk'))
+    if FIX_LAUNCHER_UNIRENDER in firmware.fixes:
+        # With UniRender the launcher hands its icons to SurfaceFlinger, whose UniRender
+        # shaders fail SPIR-V to MSL conversion on MoltenVK ("Unknown storage class used
+        # for copying arrays"), so the icons stay blank. The launcher then draws them.
+        uni_render_list = erofs(partitions / 'my_product.img', '/etc/sys_global_uni_render_list.xml')
+        launcher = b'<Application enable="1" packageName="com.android.launcher"/>'
+        if uni_render_list.count(launcher) != 1:
+            raise RuntimeError('Unexpected UniRender list: my_product/etc/sys_global_uni_render_list.xml')
+        put('my_product/etc/sys_global_uni_render_list.xml',
+            uni_render_list.replace(launcher, launcher.replace(b'enable="1"', b'enable="0"')))
+    if FIX_ETHERNET_FEATURE in firmware.fixes:
+        # Without this feature system_server starts no EthernetService, and
+        # OplusJPSbTetherManager hits a null EthernetManager at boot completed and
+        # crash-loops system_server. The connectivity overlay below keeps
+        # EthernetTracker off eth0.
+        put('system/etc/permissions/android.hardware.ethernet.xml',
+            b'<?xml version="1.0" encoding="utf-8"?>\n<permissions>\n'
+            b'    <feature name="android.hardware.ethernet" />\n</permissions>\n')
     from connectivity_overlay import build as build_connectivity_overlay
     put('product/overlay/ColorOSConnectivityOverlay/ColorOSConnectivityOverlay.apk',
         build_connectivity_overlay(sdk_path(), ROOT / 'work/connectivity-overlay'))
-    from resource_overlay import build as build_resource_overlay
-    put('product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk',
-        build_resource_overlay(repo / 'native/coloros_aod', sdk_path(),
-                               ROOT / 'work/aod-overlay', 'ColorOSAodOverlay.apk'))
-    from coloros_aod import patch_systemui_apk
-    put('system_ext/priv-app/SystemUI/SystemUI.apk', patch_systemui_apk(
-        erofs(partitions / 'system_ext.img', '/priv-app/SystemUI/SystemUI.apk'),
-        sdk_path(), ROOT / 'work/aod-systemui'))
-    from double_tap_wake import build as build_double_tap_wake
-    wake_dex, wake_library = build_double_tap_wake(sdk_path(), ROOT / 'work/double-tap-wake')
-    put('system_ext/framework/ColorOSDoubleTapWake.dex', wake_dex)
-    put('system_ext/lib64/libcoloros_double_tap.so', wake_library,
-        label='u:object_r:system_lib_file:s0')
+    if PORT_AOD in firmware.ports:
+        put('product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk',
+            build_resource_overlay(repo / 'native/coloros_aod', sdk_path(),
+                                   ROOT / 'work/aod-overlay', 'ColorOSAodOverlay.apk'))
+        from coloros_aod import patch_systemui_apk
+        put('system_ext/priv-app/SystemUI/SystemUI.apk', patch_systemui_apk(
+            erofs(partitions / 'system_ext.img', '/priv-app/SystemUI/SystemUI.apk'),
+            sdk_path(), ROOT / 'work/aod-systemui'))
+    if PORT_DOUBLE_TAP in firmware.ports:
+        from double_tap_wake import build as build_double_tap_wake
+        wake_dex, wake_library = build_double_tap_wake(sdk_path(), ROOT / 'work/double-tap-wake')
+        put('system_ext/framework/ColorOSDoubleTapWake.dex', wake_dex)
+        put('system_ext/lib64/libcoloros_double_tap.so', wake_library,
+            label='u:object_r:system_lib_file:s0')
 
     # Patch system/build.prop
     prop = normalize_display_properties(prop)
@@ -486,35 +521,46 @@ def main():
         prop = prop.replace(b'ro.adb.secure=1', b'ro.adb.secure=0')
     prop += b'\n# ColorOS-AVD virtual hardware and native effects.\n'
     prop += b'ro.mediaserver.64b.enable=true\n'
-    prop += b'debug.hwui.renderer=skiagl\n'
+    prop += b'debug.hwui.renderer=' + firmware.hwui_renderer.encode() + b'\n'
     prop += b'debug.renderengine.backend=skiavkthreaded\n'
     prop += b'persist.sys.background_blur_supported=true\n'
     put('system/build.prop', prop, 0o600)
+    if FIX_QTI_PERF_PRELOAD in firmware.fixes:
+        from patch_zygote_qti import patch_jar as patch_framework_jar
+        put('system/framework/framework.jar',
+            patch_framework_jar(erofs(system, '/system/framework/framework.jar')))
 
     # Put updated product/etc/build.prop and euclid_build.prop
     put('product/etc/build.prop', product)
     put('system/euclid_build.prop', b'\n'.join(identity) + b'\n')
-    # Patch com.oplus.camera.unit.sdk.jar to remove main-thread blocking deadlock
-    raw_sdk_jar = erofs(partitions / 'my_product.img', '/product_overlay/framework/com.oplus.camera.unit.sdk.jar')
-    put('product/framework/com.oplus.camera.unit.sdk.jar', patch_camera_sdk_jar(raw_sdk_jar, diagnostic_log=True))
-    raw_camera_apk = erofs(partitions / 'my_product.img', '/app/OplusCamera/OplusCamera.apk')
-    from coloros_camera_buffers import patch_camera_buffers_apk
-    put('my_product/app/OplusCamera/OplusCamera.apk', patch_camera_buffers_apk(
-        patch_camera_apk(raw_camera_apk), sdk_path(), ROOT / 'work/camera-bridge',
-        signing_source=raw_camera_apk))
+    if PORT_CAMERA in firmware.ports:
+        # Patch com.oplus.camera.unit.sdk.jar to remove main-thread blocking deadlock
+        raw_sdk_jar = erofs(partitions / 'my_product.img', '/product_overlay/framework/com.oplus.camera.unit.sdk.jar')
+        put('product/framework/com.oplus.camera.unit.sdk.jar', patch_camera_sdk_jar(raw_sdk_jar, diagnostic_log=True))
+        raw_camera_apk = erofs(partitions / 'my_product.img', '/app/OplusCamera/OplusCamera.apk')
+        from coloros_camera_buffers import patch_camera_buffers_apk
+        put('my_product/app/OplusCamera/OplusCamera.apk', patch_camera_buffers_apk(
+            patch_camera_apk(raw_camera_apk), sdk_path(), ROOT / 'work/camera-bridge',
+            signing_source=raw_camera_apk))
+    elif FIX_CAMERA_SDK in firmware.fixes:
+        from coloros_camera_sdk import patch_camera_sdk_jar as patch_camera_sdk_by_name
+        raw_sdk_jar = erofs(partitions / 'my_product.img', '/product_overlay/framework/com.oplus.camera.unit.sdk.jar')
+        put('product/framework/com.oplus.camera.unit.sdk.jar',
+            patch_camera_sdk_by_name(raw_sdk_jar, sdk_path(), ROOT / 'work/camera-sdk'))
     if (partitions / 'odm.img').is_file():
         sec_so = erofs(partitions / 'odm.img', '/lib64/libOplusSecurity.so')
         put('product/lib64/libOplusSecurity.so', sec_so, 0o644, 'u:object_r:system_lib_file:s0')
-    # Patch libgralloc_extra_sys.so to prevent bad handle rejection on AVD emulator buffers
-    raw_ge_so = erofs(partitions / 'system_ext.img', '/lib64/libgralloc_extra_sys.so')
-    put('system_ext/lib64/libgralloc_extra_sys.so', patch_gralloc_extra_sys(raw_ge_so),
-        label='u:object_r:system_lib_file:s0')
-    raw_ged_so = erofs(partitions / 'system_ext.img', '/lib64/libged_sys.so')
-    put('system_ext/lib64/libged_sys.so', patch_ged_sys(raw_ged_so),
-        label='u:object_r:system_lib_file:s0')
-    put('system_ext/lib64/libcomposer_ext.so',
-        apply_native_patch(erofs(partitions / 'system_ext.img', '/lib64/libcomposer_ext.so'),
-                           PROFILES['composer_ext']), label='u:object_r:system_lib_file:s0')
+    if PORT_MTK_GRAPHICS in firmware.ports:
+        # Patch libgralloc_extra_sys.so to prevent bad handle rejection on AVD emulator buffers
+        raw_ge_so = erofs(partitions / 'system_ext.img', '/lib64/libgralloc_extra_sys.so')
+        put('system_ext/lib64/libgralloc_extra_sys.so', patch_gralloc_extra_sys(raw_ge_so),
+            label='u:object_r:system_lib_file:s0')
+        raw_ged_so = erofs(partitions / 'system_ext.img', '/lib64/libged_sys.so')
+        put('system_ext/lib64/libged_sys.so', patch_ged_sys(raw_ged_so),
+            label='u:object_r:system_lib_file:s0')
+        put('system_ext/lib64/libcomposer_ext.so',
+            apply_native_patch(erofs(partitions / 'system_ext.img', '/lib64/libcomposer_ext.so'),
+                               firmware.native['composer_ext']), label='u:object_r:system_lib_file:s0')
 
     # Put all camera JNI and rendering libraries into product/lib64 with proper system_lib_file context
     my_product_reader = Reader(partitions / 'my_product.img')
@@ -551,6 +597,13 @@ def main():
     init += b'    setprop persist.sys.usb.config adb\n'
     init += b'    setprop sys.usb.config adb\n'
     init += b'    setprop debug.renderengine.backend skiavkthreaded\n'
+    if firmware.hwui_renderer == 'skiavk':
+        # Override a renderer persisted in userdata before apps fork from zygote.
+        init += b'    setprop debug.hwui.renderer skiavk\n'
+    if FIX_FLAT_DISPLAY in firmware.fixes:
+        # Oplus ScreenDecorations draws soft rounded corners from SystemUI drawables,
+        # whatever the framework radius is. The AOSP switch turns the overlays off.
+        init += b'    setprop debug.disable_screen_decorations true\n'
     init += b'    setprop persist.sys.background_blur_supported true\n'
     init += b'\non property:ro.persistent_properties.ready=true\n'
     init += b'    setprop persist.sys.background_blur_supported true\n'
@@ -577,11 +630,13 @@ def main():
 
     # Patch libhwui.so to fix GLSL ES 1.00 syntax error in OplusCausticShadowEffect
     hwui_data = erofs(system, '/system/lib64/libhwui.so')
-    put('system/lib64/libhwui.so', apply_native_patch(hwui_data, PROFILES['hwui']),
+    put('system/lib64/libhwui.so', apply_native_patch(hwui_data, firmware.native['hwui']),
         0o644, 'u:object_r:system_lib_file:s0')
-    put('system/lib64/libbluetooth_jni.so',
-        apply_native_patch(erofs(system, '/system/lib64/libbluetooth_jni.so'), PROFILES['bluetooth']),
-        0o644, 'u:object_r:system_lib_file:s0')
+    # Only firmware with an audited Bluetooth HDT site is patched.
+    if 'bluetooth' in firmware.native:
+        put('system/lib64/libbluetooth_jni.so',
+            apply_native_patch(erofs(system, '/system/lib64/libbluetooth_jni.so'), firmware.native['bluetooth']),
+            0o644, 'u:object_r:system_lib_file:s0')
     cached = (
         'ksud-aarch64-apple-darwin', 'lkm-aarch64-android15-6.6_kernelsu.ko',
         'ksud-aarch64-linux-android', 'KernelSU_v3.3.0_32601-release.apk'
@@ -598,7 +653,7 @@ def main():
     # component mapping and visual content.
     wallpaper_root = '/decouping_wallpaper/default/liveWallpaper/'
     (ROOT / 'work' / 'wallpaper-source').mkdir(parents=True, exist_ok=True)
-    for name in ('Mars_1.mp4', 'Mars_2.mp4', 'Mars_3.mp4'):
+    for name in firmware.wallpapers:
         source = ROOT / 'work' / 'wallpaper-source' / name
         source.write_bytes(erofs(partitions / 'my_product.img', wallpaper_root + name))
         data = transcode_wallpaper_video(source, ROOT / 'work' / 'wallpaper-avc' / name)
@@ -651,7 +706,8 @@ def main():
         'my_product/del-app/heytapbook',           # 书城
         'my_product/priv-app/RemoteControl',       # 红外遥控
     )
-    build(image, merge_list, ROOT / 'work/official-tree', replacements, removals=removals)
+    build(image, merge_list, ROOT / 'work/official-tree', replacements,
+          removals=removals + firmware.removals)
 
     for path in base.iterdir():
         if path.is_file() and path.name not in ('system.img', 'package.xml'):
@@ -730,7 +786,8 @@ vm.heapSize=256M
     (ROOT / 'config/avd.ini').write_text(avd_ini)
 
     metadata = {
-        'coloros': '17.0.0.114',
+        'coloros': firmware.coloros,
+        'device': firmware.device,
         'source': 'official-coloros-ota',
         'android_api': 37,
         'archive_sha256': archive_sha256,
@@ -741,19 +798,19 @@ vm.heapSize=256M
         'composer_alpha_fix': composer_manifest,
         'audio_pcm_fix': audio_manifest,
         'camera_scene_fix': scene_manifest,
-        'native_patches': native_patch_receipt(),
-        'double_tap_wake': {
-            'system_ext/framework/ColorOSDoubleTapWake.dex': hashlib.sha256(wake_dex).hexdigest(),
-            'system_ext/lib64/libcoloros_double_tap.so': hashlib.sha256(wake_library).hexdigest(),
-        },
+        'native_patches': native_patch_receipt(firmware.native),
+        'emulator_features': list(firmware.emulator_features),
         'adb_authentication': not args.diagnostic_adb,
     }
+    if PORT_DOUBLE_TAP in firmware.ports:
+        metadata['double_tap_wake'] = {
+            'system_ext/framework/ColorOSDoubleTapWake.dex': hashlib.sha256(wake_dex).hexdigest(),
+            'system_ext/lib64/libcoloros_double_tap.so': hashlib.sha256(wake_library).hexdigest(),
+        }
     (ROOT / 'local/build.json').write_text(json.dumps(metadata, indent=2) + '\n')
 
-    name = 'ColorOS17_API37'
-    port = 5574
-    configure(sdk_path(), name, port)
-    print(f'ColorOS GSI candidate ready: {name} (emulator-{port}).', flush=True)
+    configure(sdk_path(), args.name, args.port)
+    print(f'ColorOS GSI candidate ready: {args.name} (emulator-{args.port}).', flush=True)
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ class ColorOSCameraConfigTests(unittest.TestCase):
     def test_virtual_capture_modes_have_one_camera_and_no_isp_tuning(self):
         source = {
             'camera_id_list': ['0', '1', '2', '3'],
+            'device_info': {'platform': 'qcom'},
             'mode_type_list': {'rear_main': ['photo_mode'], 'front_main': ['photo_mode']},
             'mode_operation_mode': {'professional_mode': '8020'},
             'feature_operation_mode': {'portrait_mode': {'bokeh': {'on': '8026'}}},
@@ -31,6 +32,8 @@ class ColorOSCameraConfigTests(unittest.TestCase):
         }
         result = json.loads(virtual_camera_config(json.dumps(source).encode()))
         self.assertEqual(result['camera_id_list'], ['0', '1'])
+        # The Ranchu bridge only supplies the vendor tags of the SDK's MTK path.
+        self.assertEqual(result['device_info'], {'platform': 'mtk'})
         self.assertNotIn('portrait_mode', result['mode_type_list']['rear_main'])
         self.assertNotIn('portrait_mode', result['mode_type_list']['front_main'])
         self.assertEqual(result['mode_cameraType_sensor_number'], {})
