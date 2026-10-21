@@ -10,7 +10,7 @@
 9b05a00858b964a3fc5891a1873c91ad38aa4786fb729c1a19748214adb868ae
 ```
 
-构建器拒绝 SHA-256 不符的 OTA。相机 DEX、Ranchu composer/audio/provider、ColorOS gralloc/GED/HWUI 补丁还会核对对应输入哈希；原生补丁检查原字节和输出哈希。更换固件需先审计并添加匹配规则。
+构建器拒绝 SHA-256 不符的 OTA。相机 DEX、Ranchu composer/audio/provider、ColorOS gralloc/GED/HWUI 补丁还会核对对应输入哈希；原生补丁检查原字节和输出哈希。更换固件需先审计并添加匹配规则，见 [适配新的固件](porting-new-firmware.md)。
 
 依赖安装见 [安装与启动](installing.md)。KernelSU v3.3.0 工具、android15-6.6 LKM 和管理器缓存到工作区 `tools/`，缺失时自动下载并校验；Python CA 验证失败时可回退到 macOS 系统 HTTPS，证书与域名验证继续启用；根目录 `tools/` 中的同名文件可作为离线缓存。
 
