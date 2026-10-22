@@ -1,5 +1,5 @@
 """Content-pinned edits for the audited ColorOS native libraries."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 
@@ -64,6 +64,16 @@ PROFILES = {
 }
 
 
+# Qualcomm PLK110 17.0.0.105 inputs. Kept apart from PROFILES because the
+# release checks walk PROFILES against the PMX110 image only.
+PLK110_PROFILES = {
+    'hwui': replace(
+        PROFILES['hwui'],
+        before='3a79d2e05023370a84f9621b8b0ba5570d1fc2d85afe04588e335626a3c46544',
+        after='51e6e517639c50ec49af678861ddef6f118a8ea34f116b883ee41b9761ed617c'),
+}
+
+
 def apply(data: bytes, profile: Profile) -> bytes:
     checksum = hashlib.sha256(data).hexdigest()
     if checksum == profile.after:
@@ -87,6 +97,6 @@ def apply(data: bytes, profile: Profile) -> bytes:
     return patched
 
 
-def receipt():
+def receipt(profiles=PROFILES):
     return {name: {'path': profile.path, 'before': profile.before, 'after': profile.after}
-            for name, profile in PROFILES.items()}
+            for name, profile in profiles.items()}

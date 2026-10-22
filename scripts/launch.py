@@ -199,6 +199,9 @@ def main():
                '-sysdir', str(ROOT / 'images'), '-port', str(config['port']),
                '-no-snapshot-load', '-no-snapshot-save', '-accel', 'on', '-gpu', 'host',
                '-memory', memory, '-cores', cores, '-show-kernel', '-verbose']
+    features = json.loads(build.read_text()).get('emulator_features', [])
+    if features:
+        command += ['-feature', ','.join(features)]
     if args.headless:
         command += ['-no-window']
     with log.open('wb') as output:

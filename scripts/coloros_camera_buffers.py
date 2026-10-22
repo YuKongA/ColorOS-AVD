@@ -18,11 +18,8 @@ DEPENDENCIES = (
 )
 
 
-def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path, *, signing_source: bytes) -> bytes:
-    sources = Path(__file__).resolve().parents[1] / 'native/coloros_camera'
-    work.mkdir(parents=True, exist_ok=True)
-    for name in ('classes', 'dex', 'tool'):
-        (work / name).mkdir(exist_ok=True)
+def fetch_dependencies(work: Path):
+    """Download the pinned dexlib2 build dependencies into work."""
     for name, url, checksum in DEPENDENCIES:
         path = work / name
         if not path.exists():
@@ -34,6 +31,14 @@ def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path, *, signing_sour
             path.write_bytes(downloaded)
         if hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
             raise RuntimeError('Camera build dependency checksum mismatch: ' + name)
+
+
+def patch_camera_buffers_apk(data: bytes, sdk: Path, work: Path, *, signing_source: bytes) -> bytes:
+    sources = Path(__file__).resolve().parents[1] / 'native/coloros_camera'
+    work.mkdir(parents=True, exist_ok=True)
+    for name in ('classes', 'dex', 'tool'):
+        (work / name).mkdir(exist_ok=True)
+    fetch_dependencies(work)
     android = sdk / 'platforms/android-36/android.jar'
     build_tools = sdk / 'build-tools/36.0.0'
     if not android.exists() or not (build_tools / 'd8').exists():

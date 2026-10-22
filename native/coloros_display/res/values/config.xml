@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The AVD panel is a plain rectangle. These override the PLK110 display
+         overlay (priority 700), which also carries the color mode list that
+         the OEM color mode service needs, so it must stay installed. -->
+    <dimen name="rounded_corner_radius">0px</dimen>
+    <string name="config_mainBuiltInDisplayCutout" translatable="false"></string>
+    <string name="config_mainBuiltInDisplayCutoutRectApproximation" translatable="false"></string>
+</resources>

@@ -46,6 +46,7 @@ curl -fsSL https://github.com/YuKongA/ColorOS-AVD/releases/latest/download/insta
 - [重新构建](docs/rebuilding.md)
 - [兼容性说明](docs/compatibility.md)
 - [官方固件修改清单](docs/coloros-firmware-changes.md)
+- [适配新的固件](docs/porting-new-firmware.md)
 
 ## 致谢
 
