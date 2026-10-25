@@ -113,6 +113,16 @@ public final class PatchCameraSdk {
                 hit("camera_type"); edited = true;
             }
         }
+        if (type.equals(INFO + "CameraCharacteristicsWrapper;") && name.equals("get") && method.getParameterTypes().size() == 1) {
+            for (int i = 0; i < list.size(); i++) {
+                if (!refers(list.get(i), MethodReference.class, "Landroid/hardware/camera2/CameraCharacteristics;", "get")) continue;
+                Instruction35c call = (Instruction35c) list.get(i);
+                code.replaceInstruction(i, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 2, call.getRegisterC(),
+                    call.getRegisterD(), 0, 0, 0, helper("getCharacteristic", "Ljava/lang/Object;",
+                        "Landroid/hardware/camera2/CameraCharacteristics;", "Landroid/hardware/camera2/CameraCharacteristics$Key;")));
+                hit("ae_compensation"); edited = true;
+            }
+        }
         if (type.equals(APS + "adapter/ApsCaptureResult;")) {
             // Optional vendor arrays that NoneApsImpl never uses. Reading a
             // missing vendor tag throws, so keep the SDK's null defaults.

@@ -1,5 +1,8 @@
 package com.coloros.avd.camera;
 
+import android.hardware.camera2.CameraCharacteristics;
+import android.util.Range;
+import android.util.Rational;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.hardware.camera2.CaptureRequest;
@@ -21,6 +24,25 @@ public final class VirtualCameraSdk {
     private static final ThreadLocal<Integer> ROTATION = new ThreadLocal<>();
 
     private VirtualCameraSdk() {}
+    /**
+     * Override camera characteristics that freeze ColorOS pro mode on Ranchu.
+     *
+     * Ranchu reports 1/2 for the virtualscene camera, which causes an infinite
+     * loop in HSPanelContainer (0.333333f / 0.5f truncated to int is 0).
+     */
+    public static Object getCharacteristic(CameraCharacteristics characteristics, CameraCharacteristics.Key<?> key) {
+        if (key != null) {
+            String name = key.getName();
+            if ("android.control.aeCompensationStep".equals(name)) {
+                return new Rational(1, 6);
+            }
+            if ("android.control.aeCompensationRange".equals(name)) {
+                return new Range<Integer>(-24, 24);
+            }
+        }
+        return characteristics == null ? null : characteristics.get(key);
+    }
+
 
     /** Remember the request's JPEG_ORIENTATION for the next encode on this thread. */
     public static void beginCapture(Object captureParam) {

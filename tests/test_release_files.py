@@ -53,6 +53,17 @@ class ReleaseFilesTests(unittest.TestCase):
     def test_current_format_is_accepted(self):
         release.validate_manifest(self.manifest())
 
+    def test_plk110_userdata_family_is_accepted(self):
+        value = self.manifest()
+        value['userdata_family'] = 'coloros-plk110-api37-ranchu-4k'
+        release.validate_manifest(value)
+
+    def test_unsupported_userdata_family_is_rejected(self):
+        value = self.manifest()
+        value['userdata_family'] = 'coloros-unknown-api37-ranchu-4k'
+        with self.assertRaisesRegex(RuntimeError, 'Unsupported ColorOS release manifest'):
+            release.validate_manifest(value)
+
     def test_new_bundle_omits_helper_and_published_bundle_still_validates(self):
         value = self.manifest()
         helper = 'tools/SetWallpaper.dex'

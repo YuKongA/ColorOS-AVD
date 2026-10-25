@@ -42,6 +42,12 @@ class FirmwareProfileTest(unittest.TestCase):
         self.assertEqual(profile.ports, frozenset())
         self.assertIn(FIX_QTI_PERF_PRELOAD, profile.fixes)
 
+    def test_userdata_family_matches_device_identifier(self):
+        self.assertEqual(profile_for_archive(PMX110).userdata_family,
+                         'coloros-pmx110-api37-ranchu-4k')
+        self.assertEqual(profile_for_archive(PLK110).userdata_family,
+                         'coloros-plk110-api37-ranchu-4k')
+
     def test_plk110_turns_off_the_stalling_host_feature_and_pmx110_changes_nothing(self):
         self.assertEqual(profile_for_archive(PLK110).emulator_features,
                          ('-VulkanQueueSubmitWithCommands',))

@@ -15,8 +15,9 @@ from common import REPO_ROOT, sha256, tool, KSU_ASSETS
 from init_userdata import create
 from lp_image import unpack
 from image_utils import erofs
-from native_patches import PROFILES
-from release_files import (FAMILY, IMAGE_FILES, TOOLS, RUNTIME_SCRIPTS,
+from firmware_profile import (PORT_AOD, PORT_CAMERA, PORT_DOUBLE_TAP,
+                              profile_for_archive)
+from release_files import (IMAGE_FILES, TOOLS, RUNTIME_SCRIPTS,
                            validate_manifest, allowed_file)
 
 
@@ -50,8 +51,12 @@ def verify_images(workspace, scratch):
     metadata = json.loads((workspace / 'local/build.json').read_text())
     if metadata.get('native_patches') is None or metadata.get('adb_authentication') is not True:
         raise RuntimeError('Rebuild current ColorOS sources before publishing.')
+    archive_sha256 = metadata.get('archive_sha256')
+    if not archive_sha256:
+        raise RuntimeError('Build metadata missing archive_sha256.')
+    firmware = profile_for_archive(archive_sha256)
     unpack(workspace / 'images/system.img', scratch)
-    for profile in PROFILES.values():
+    for profile in firmware.native.values():
         value = erofs(scratch / 'system.img', '/' + profile.path)
         if hashlib.sha256(value).hexdigest() != profile.after:
             raise RuntimeError('Release native library mismatch: ' + profile.path)
@@ -70,30 +75,35 @@ def verify_images(workspace, scratch):
         paths = set(path for path, _ in reader.walk())
     finally:
         reader.close()
-    for removed in removals:
+    for removed in removals + firmware.removals:
         if any(path == removed or path.startswith(removed + '/') for path in paths):
             raise RuntimeError('Removed application remains in release: ' + removed)
     from apk_system_signing import signing_block
     camera = erofs(scratch / 'system.img', '/my_product/app/OplusCamera/OplusCamera.apk')
     signing_block(camera)
     metadata['camera_apk_sha256'] = hashlib.sha256(camera).hexdigest()
-    from coloros_aod import PATCHED_DEX_SHA256
-    systemui = erofs(scratch / 'system.img', '/system_ext/priv-app/SystemUI/SystemUI.apk')
-    signing_block(systemui)
-    with zipfile.ZipFile(io.BytesIO(systemui)) as apk:
-        if hashlib.sha256(apk.read('classes3.dex')).hexdigest() != PATCHED_DEX_SHA256:
-            raise RuntimeError('Release SystemUI AOD patch is missing or changed.')
-    metadata['systemui_apk_sha256'] = hashlib.sha256(systemui).hexdigest()
-    overlay = erofs(scratch / 'system.img',
-                    '/product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk')
-    metadata['aod_overlay_sha256'] = hashlib.sha256(overlay).hexdigest()
-    wake_paths = {'system_ext/framework/ColorOSDoubleTapWake.dex',
-                  'system_ext/lib64/libcoloros_double_tap.so'}
-    if set(metadata.get('double_tap_wake', {})) != wake_paths:
-        raise RuntimeError('Rebuild the double-tap wake bridge before publishing.')
-    for path, checksum in metadata['double_tap_wake'].items():
-        if hashlib.sha256(erofs(scratch / 'system.img', '/' + path)).hexdigest() != checksum:
-            raise RuntimeError('Release double-tap wake bridge mismatch: ' + path)
+    if PORT_AOD in firmware.ports:
+        from coloros_aod import PATCHED_DEX_SHA256
+        systemui = erofs(scratch / 'system.img', '/system_ext/priv-app/SystemUI/SystemUI.apk')
+        signing_block(systemui)
+        with zipfile.ZipFile(io.BytesIO(systemui)) as apk:
+            if hashlib.sha256(apk.read('classes3.dex')).hexdigest() != PATCHED_DEX_SHA256:
+                raise RuntimeError('Release SystemUI AOD patch is missing or changed.')
+        metadata['systemui_apk_sha256'] = hashlib.sha256(systemui).hexdigest()
+        overlay = erofs(scratch / 'system.img',
+                        '/product/overlay/ColorOSAodOverlay/ColorOSAodOverlay.apk')
+        metadata['aod_overlay_sha256'] = hashlib.sha256(overlay).hexdigest()
+    else:
+        metadata.pop('systemui_apk_sha256', None)
+        metadata.pop('aod_overlay_sha256', None)
+    if PORT_DOUBLE_TAP in firmware.ports:
+        wake_paths = {'system_ext/framework/ColorOSDoubleTapWake.dex',
+                      'system_ext/lib64/libcoloros_double_tap.so'}
+        if set(metadata.get('double_tap_wake', {})) != wake_paths:
+            raise RuntimeError('Rebuild the double-tap wake bridge before publishing.')
+        for path, checksum in metadata['double_tap_wake'].items():
+            if hashlib.sha256(erofs(scratch / 'system.img', '/' + path)).hexdigest() != checksum:
+                raise RuntimeError('Release double-tap wake bridge mismatch: ' + path)
     return metadata
 
 
@@ -173,8 +183,10 @@ def package(workspace, directory, version, part_mib=1024, preset=6, threads=2):
                 if process.poll() is None:
                     process.terminate()
                     process.wait()
+            firmware = profile_for_archive(metadata['archive_sha256'])
             manifest = {'project': 'ColorOS-AVD', 'format': 1, 'platform': 'macos-arm64',
-                        'version': version, 'compression': 'xz', 'userdata_family': FAMILY,
+                        'version': version, 'compression': 'xz',
+                        'userdata_family': firmware.userdata_family,
                         'build': metadata, 'parts': writer.parts, 'files': files}
             validate_manifest(manifest)
             (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -196,15 +208,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace', type=Path, default=REPO_ROOT / 'work/coloros-release-r1')
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--version', default='v0.1.0-coloros17-r1')
+    parser.add_argument('--version')
     parser.add_argument('--part-mib', type=int, default=1024)
     parser.add_argument('--preset', type=int, choices=range(10), default=6)
     parser.add_argument('--threads', type=int, default=2)
     args = parser.parse_args()
     if not 1 <= args.part_mib < 2048 or not 1 <= args.threads <= 16:
         raise RuntimeError('Use parts below 2 GiB and 1–16 compression threads.')
-    directory = args.output or REPO_ROOT / 'work/releases' / args.version
-    package(args.workspace.resolve(), directory.resolve(), args.version, args.part_mib, args.preset, args.threads)
+    workspace = args.workspace.resolve()
+    version = args.version
+    if not version:
+        metadata_file = workspace / 'local/build.json'
+        if metadata_file.is_file():
+            meta = json.loads(metadata_file.read_text())
+            device = meta.get('device', 'PMX110').lower()
+            version = 'v0.1.0-coloros17-r1' if device == 'pmx110' else f'v0.1.0-coloros17-{device}-r1'
+        else:
+            version = 'v0.1.0-coloros17-r1'
+    directory = args.output or REPO_ROOT / 'work/releases' / version
+    package(workspace, directory.resolve(), version, args.part_mib, args.preset, args.threads)
 
 
 if __name__ == '__main__':

@@ -25,6 +25,10 @@ TOOLS = ('ksud-aarch64-linux-android', 'KernelSU_v3.3.0_32601-release.apk')
 # adding it to new bundles. Its manifest hash is still checked on extraction.
 LEGACY_FILES = frozenset({'tools/SetWallpaper.dex'})
 FAMILY = 'coloros-pmx110-api37-ranchu-4k'
+SUPPORTED_FAMILIES = frozenset({
+    FAMILY,
+    'coloros-plk110-api37-ranchu-4k',
+})
 
 
 def safe_path(value):
@@ -53,7 +57,7 @@ def checksum_entry(entry):
 def validate_manifest(value):
     if (not isinstance(value, dict) or value.get('project') != 'ColorOS-AVD'
             or value.get('format') != 1 or value.get('platform') != 'macos-arm64'
-            or value.get('compression') != 'xz' or value.get('userdata_family') != FAMILY
+            or value.get('compression') != 'xz' or value.get('userdata_family') not in SUPPORTED_FAMILIES
             or not re.fullmatch(r'v[0-9A-Za-z_.-]+', value.get('version', ''))
             or value.get('build', {}).get('source') != COLOROS_SOURCE
             or value['build'].get('android_api') != 37 or value['build'].get('adb_authentication') is not True):

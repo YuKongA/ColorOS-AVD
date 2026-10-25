@@ -128,6 +128,14 @@ class InstallerTests(unittest.TestCase):
             self.install()
         self.assertFalse((self.root / 'versions').exists())
 
+    def test_mismatched_userdata_family_refuses_upgrade(self):
+        self.install()
+        plk_manifest = dict(self.manifest, version='v0.1.0-coloros17-plk110-r1',
+                            userdata_family='coloros-plk110-api37-ranchu-4k')
+        with patch.object(installer, 'read_manifest', return_value=(plk_manifest, self.bundle)), \
+                self.assertRaisesRegex(RuntimeError, '用户数据家族或加密模板不兼容'):
+            self.install()
+
     def test_directory_selector_confirms_existing_directory_and_allows_retry(self):
         candidate = self.root / 'candidate'
         candidate.mkdir(parents=True)

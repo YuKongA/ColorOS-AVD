@@ -702,9 +702,11 @@ def main():
         'my_stock/del-app/BrowserVideo',           # OPPO 视频
         'my_stock/del-app/Music',                  # 音乐
         'my_stock/del-app/FinShellWallet',         # 钱包
+        'my_stock/del-app/TickService',            # 股市
         'my_product/del-app/SogouInput_U_Product_Del',  # 搜狗输入法定制版
         'my_product/del-app/heytapbook',           # 书城
         'my_product/priv-app/RemoteControl',       # 红外遥控
+        'my_product/del-app/ConsumerIRApp',        # 红外遥控 (PLK110)
     )
     build(image, merge_list, ROOT / 'work/official-tree', replacements,
           removals=removals + firmware.removals)

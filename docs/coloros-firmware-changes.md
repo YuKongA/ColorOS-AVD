@@ -151,9 +151,10 @@ Composer 扩展补丁只修改 `ClientImpl::Init` 中一条 4 字节的空指针
 | OPPO 视频        | `my_stock/del-app/BrowserVideo`               |
 | 音乐             | `my_stock/del-app/Music`                      |
 | 钱包             | `my_stock/del-app/FinShellWallet`             |
+| 股市             | `my_stock/del-app/TickService`                |
 | 搜狗输入法定制版 | `my_product/del-app/SogouInput_U_Product_Del` |
 | 书城             | `my_product/del-app/heytapbook`               |
-| 红外遥控         | `my_product/priv-app/RemoteControl`           |
+| 红外遥控         | `my_product/priv-app/RemoteControl` / `my_product/del-app/ConsumerIRApp` |
 
 这些删除在重新构建时应用。`MyDevices`、媒体播放器 `VideoGallery`、Android `DocumentsUI` 以及其他未列入名单的系统组件会保留。
 

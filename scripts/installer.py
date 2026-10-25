@@ -15,8 +15,8 @@ import time
 
 from common import (avd_home, host_check, port_free, sha256, tool,
                     DEFAULT_NAME, DEFAULT_PORT)
-from release_files import (REPOSITORY, FAMILY, download, extract_release, read_manifest,
-                           release_url, remote_json)
+from release_files import (REPOSITORY, FAMILY, SUPPORTED_FAMILIES, download, extract_release,
+                           read_manifest, release_url, remote_json)
 
 
 def ask(prompt, default):
@@ -234,7 +234,9 @@ def install(root, sdk, manifest_location, name, port, hardware, manifest_sha256=
         owned_and_idle(root, name, port)
         previous = read_json(root / 'local/installed-release.json')
         if previous:
-            if (previous.get('userdata_family') != FAMILY
+            target_family = manifest.get('userdata_family')
+            if (previous.get('userdata_family') != target_family
+                    or target_family not in SUPPORTED_FAMILIES
                     or previous['files']['images/encryptionkey.img']['sha256'] != manifest['files']['images/encryptionkey.img']['sha256']):
                 raise RuntimeError('用户数据家族或加密模板不兼容，请安装到新目录。')
             def order(version):

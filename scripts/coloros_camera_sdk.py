@@ -19,6 +19,7 @@ EXPECTED_EDITS = {
     'bfa98f6704e900341bf2e67d3e0bf54a435d91180cccb9d4aed03b42c50cb8e4': {
         'ready': 2, 'aps_mode': 2, 'camera_type': 1, 'capture_metadata': 6,
         'yuv': 1, 'jpeg_orientation': 1, 'preview_camera_id': 1,
+        'ae_compensation': 1,
     },
 }
 

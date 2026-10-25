@@ -60,7 +60,7 @@ python3 scripts/build_coloros.py --zip /path/to/ota.zip \
 - `libOplusSecurity.so` 要放进 vendor 的 `lib64`。加密的相机配置靠它解密，sphal 命名空间不搜 `/odm/lib64`。解密失败时 `aps_mode` 读成 0，预览没有元数据，画面全黑。
 - `camera_unit_config` 的平台改成 `mtk`。PLK110 写的是 `qcom`，SDK 走高通路径，拍照时读取 Ranchu 没有的 vendor tag `com.oplus.sensor.timestamp`，相机崩溃。
 - 虚拟录像档位（`media_profiles_V1_0.xml`），否则进录像模式就因为没有 1080p 档位崩溃。
-- 相机 SDK 七处修改：去掉主线程等待厂商回调（`ready`），走软件 APS（`aps_mode`），按相机 ID 定类型（`camera_type`），可选厂商数组置空（`capture_metadata`），按步长复制 YUV（`yuv`，否则照片颜色错乱），写 EXIF 方向（`jpeg_orientation`），按请求标签定前后摄（`preview_camera_id`，否则前摄拍不了）。逐个去掉验证过，`camera_type`、`capture_metadata`、`ready`、`aps_mode` 少一个就拍不了；PMX110 补丁里的权限判断和 ALog 两处在这里不需要。
+- 相机 SDK 八处修改：去掉主线程等待厂商回调（`ready`），走软件 APS（`aps_mode`），按相机 ID 定类型（`camera_type`），可选厂商数组置空（`capture_metadata`），按步长复制 YUV（`yuv`，否则照片颜色错乱），写 EXIF 方向（`jpeg_orientation`），按请求标签定前后摄（`preview_camera_id`，否则前摄拍不了），重定向曝光补偿步长（`ae_compensation`，Ranchu 虚拟后摄上报 1/2 步长导致专业模式 EV 滑条在 `HSPanelContainer` 中步长除以 0 死循环，重定向为 1/6 与 [-24, 24] 范围）。逐个去掉验证过，`camera_type`、`capture_metadata`、`ready`、`aps_mode`、`ae_compensation` 少一个就拍不了或死循环；PMX110 补丁里的权限判断和 ALog 两处在这里不需要。
 
 卡死问题：在桌面划进负一屏、下拉搜索或下拉控制中心，SurfaceFlinger 的渲染线程会占满一个核，`system_server` 随后被 Watchdog 杀掉重启，严重时客户机整机重启。调用栈显示卡在 Vulkan 队列提交后的同步等待：
 

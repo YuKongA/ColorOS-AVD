@@ -48,6 +48,11 @@ class FirmwareProfile:
         """
         return self.hwui_renderer == 'skiagl'
 
+    @property
+    def userdata_family(self):
+        """Userdata template and encryption family name for this device."""
+        return f'coloros-{self.device.lower()}-api37-ranchu-4k'
+
 
 FIRMWARE = {
     # OPPO Find X10 Pro Max, MediaTek.
