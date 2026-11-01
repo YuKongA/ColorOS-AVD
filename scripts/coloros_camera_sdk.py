@@ -21,6 +21,12 @@ EXPECTED_EDITS = {
         'yuv': 1, 'jpeg_orientation': 1, 'preview_camera_id': 1,
         'ae_compensation': 1,
     },
+    # PJF110 16.0.5
+    '12a82621f7e500f0179a97f6e4e2b7df11f0e8fa0b610c9204946b61d098fc5d': {
+        'ready': 2, 'aps_mode': 2, 'camera_type': 1, 'capture_metadata': 6,
+        'yuv': 1, 'jpeg_orientation': 1, 'preview_camera_id': 1,
+        'ae_compensation': 1, 'qcom_platform': 1, 'optional_metadata': 1,
+    },
 }
 
 

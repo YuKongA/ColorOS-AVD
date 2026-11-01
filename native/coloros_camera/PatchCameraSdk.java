@@ -22,8 +22,12 @@ public final class PatchCameraSdk {
     private static final String APS = "Lcom/oplus/ocs/camera/consumer/apsAdapter/";
     private static final String INFO = "Lcom/oplus/ocs/camera/producer/info/";
     private static final Map<String, Integer> counts = new TreeMap<>();
+    private static Set<String> enabled = Collections.emptySet();
 
     public static void main(String[] args) throws Exception {
+        Map<String, Integer> expected = new TreeMap<>();
+        for (String item : args[3].split(",")) expected.put(item.split("=")[0], Integer.parseInt(item.split("=")[1]));
+        enabled = expected.keySet();
         DexFile source = DexFileFactory.loadDexFile(args[0], Opcodes.forApi(28));
         DexPool pool = new DexPool(Opcodes.forApi(28));
         for (ClassDef cls : source.getClasses()) {
@@ -38,8 +42,6 @@ public final class PatchCameraSdk {
             pool.internClass(new ImmutableClassDef(cls.getType(), cls.getAccessFlags(), cls.getSuperclass(),
                 cls.getInterfaces(), cls.getSourceFile(), cls.getAnnotations(), cls.getFields(), methods));
         }
-        Map<String, Integer> expected = new TreeMap<>();
-        for (String item : args[3].split(",")) expected.put(item.split("=")[0], Integer.parseInt(item.split("=")[1]));
         if (!counts.equals(expected)) throw new IllegalStateException("Expected camera SDK edits " + expected + ", found " + counts);
         for (ClassDef cls : DexFileFactory.loadDexFile(args[2], Opcodes.forApi(28)).getClasses()) pool.internClass(cls);
         pool.writeTo(new com.android.tools.smali.dexlib2.writer.io.FileDataStore(new java.io.File(args[1])));
@@ -175,6 +177,32 @@ public final class PatchCameraSdk {
                 code.replaceInstruction(i + 1, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, get.getRegisterC(), 0, 0, 0, 0,
                     helper("previewCameraId", "Ljava/lang/String;", "Landroid/hardware/camera2/CaptureResult;")));
                 hit("preview_camera_id"); edited = true;
+            }
+        }
+        if (enabled.contains("qcom_platform") && type.equals("Lcom/common/Util;") && name.equals("isQcomPlatform")
+                && method.getParameterTypes().isEmpty() && method.getReturnType().equals("Z")) {
+            // Build.HARDWARE is ranchu on the emulator, which is neither qcom nor
+            // mt*, so the OEM check throws "Unknown Platform". The camera runs the
+            // MTK path (device_info.platform=mtk), so report non-Qualcomm.
+            code = new MutableMethodImplementation(1);
+            code.addInstruction(new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+            code.addInstruction(new BuilderInstruction11x(Opcode.RETURN, 0));
+            hit("qcom_platform");
+            return code;
+        }
+        if (enabled.contains("optional_metadata")
+                && type.equals("Lcom/oplus/ocs/camera/metadata/captureresult/OplusCaptureResultImpl;")
+                && name.equals("get")
+                && method.getParameterTypes().equals(Arrays.asList("Landroid/hardware/camera2/CaptureResult$Key;"))) {
+            // The OEM wrapper reads vendor tags directly and throws for any tag
+            // Ranchu does not register. Delegate to a helper that returns null.
+            for (int i = 0; i < list.size(); i++) {
+                if (!refers(list.get(i), MethodReference.class, "Landroid/hardware/camera2/CaptureResult;", "get")) continue;
+                Instruction35c call = (Instruction35c) list.get(i);
+                code.replaceInstruction(i, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 2, call.getRegisterC(),
+                    call.getRegisterD(), 0, 0, 0, helper("getOptionalMetadata", "Ljava/lang/Object;",
+                        "Landroid/hardware/camera2/CaptureResult;", "Landroid/hardware/camera2/CaptureResult$Key;")));
+                hit("optional_metadata"); edited = true;
             }
         }
         return edited ? code : null;

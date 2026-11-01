@@ -74,6 +74,20 @@ PLK110_PROFILES = {
 }
 
 
+# Qualcomm PJF110 16.0.5 inputs.
+PJF110_PROFILES = {
+    'gui': Profile(
+        'system/lib64/libgui.so',
+        '4d3153ff6538ced5079132287e7cada42111925ebd57ec4da519d2217b831857',
+        'd80ea77ec27a6cc1e748be3518a02bc9faa8141da7c026086aa6ea6a7c0772a4',
+        # QtiBLASTBufferQueueExtension's once-init qtiInitAppType binds the QTI perf
+        # HAL and transacts on it, which never answers on ranchu. The first
+        # SurfaceView creation then never returns, so the camera never opens its
+        # device. Skip the init: the app type is only a performance hint.
+        (Site(0x18ff2c, bytes.fromhex('3f2303d5'), bytes.fromhex('c0035fd6')),)),
+}
+
+
 def apply(data: bytes, profile: Profile) -> bytes:
     checksum = hashlib.sha256(data).hexdigest()
     if checksum == profile.after:
