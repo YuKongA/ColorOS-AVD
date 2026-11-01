@@ -8,6 +8,8 @@
 | --- | --- |
 | `native` | 已审计的原生库补丁，见 [native_patches.py](../scripts/native_patches.py)。每个补丁都核对输入哈希、原字节和输出哈希。 |
 | `wallpapers` | 需要转成 8-bit AVC 的原厂动态壁纸视频。Ranchu 的解码器解不了 HEVC Main 10。 |
+| `android_sdk` | OTA 框架的 Android SDK 版本。ColorOS 16 是 36，17 是 37。构建时用它核对源分区，并写入 AVD 的 target。 |
+| `lcd_width` | 模拟器面板宽度。已支持的机型共享 2772 的高度和 560 的密度，只有面板宽度不同（PJF110 是 1240，其余是 1272）。 |
 | `ports` | 只存在于部分固件的功能移植：`mtk_graphics`（联发科图形库）、`camera`、`aod`、`double_tap`。 |
 | `fixes` | 非联发科固件需要的兼容修复，见下表。 |
 | `hwui_renderer` | HWUI 的渲染器，`skiagl` 或 `skiavk`。 |
@@ -25,6 +27,7 @@
 | `flat_display` | AVD 的屏幕是普通矩形。去掉面板的圆角和挖孔：叠加一个 overlay 清零框架里的圆角半径和挖孔，删掉 OPlus 的圆角遮罩 overlay，并在开机时设 `debug.disable_screen_decorations=true`。后者才是关闭窗口里圆角和圆点的开关，因为 OPlus 的 SystemUI 用自带图片画圆角，和框架配置无关。 |
 | `launcher_unirender` | 把 `my_product/etc/sys_global_uni_render_list.xml` 里桌面那一项改成 `enable="0"`，让桌面自己画。见下文。 |
 | `camera_sdk` | 相机在 PMX110 之外的固件上运行。和 `camera` 移植一样把 ODM 相机配置、`libOplusSecurity.so` 和虚拟录像档位烤进 vendor；相机 SDK 则按类名和方法名打补丁，见 [coloros_camera_sdk.py](../scripts/coloros_camera_sdk.py)。见下文。 |
+| `resolution_switch` | ColorOS 16 开机自动把面板降到机型的低分辨率档、并套用 FHD 默认密度，AVD 窗口两侧出现黑条、界面偏小。构建时把 `my_product/build.prop` 的两档分辨率都固定到模拟器面板、密度默认值固定到面板物理密度，并关闭切换。注意不能只在 Euclid 属性里覆盖：my_product 在其后加载，会赢。 |
 
 `flat_display` 不能直接删掉框架的显示 overlay，它里面带着色彩模式列表。删掉后 OPlus 的色彩模式服务仍会设模式 301，抛出 `Invalid colorMode: 301`，`system_server` 崩溃循环。
 
