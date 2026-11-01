@@ -1,7 +1,7 @@
 """Per-OTA build profiles: which audited ports and fixes a firmware needs."""
 from dataclasses import dataclass
 
-from native_patches import PLK110_PROFILES, PROFILES
+from native_patches import PJF110_PROFILES, PLK110_PROFILES, PROFILES
 
 # Device ports. Each one patches content that exists only in some firmware, so
 # a profile lists exactly the ports whose inputs were audited for that OTA.
@@ -16,6 +16,7 @@ FIX_QTI_PERF_PRELOAD = 'qti_perf_preload'  # always preload libqti_performance i
 FIX_FLAT_DISPLAY = 'flat_display'          # no rounded corners and no camera cutout
 FIX_LAUNCHER_UNIRENDER = 'launcher_unirender'  # the launcher draws itself, not through UniRender
 FIX_CAMERA_SDK = 'camera_sdk'              # camera SDK patched by name, ODM camera configs baked
+FIX_RESOLUTION_SWITCH = 'resolution_switch'  # keep the panel at its native resolution
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,11 @@ class FirmwareProfile:
     native: dict
     # OEM live wallpaper videos that need an AVC copy for the Ranchu decoder.
     wallpapers: tuple
+    # Android SDK level of the OTA framework. ColorOS 16 is SDK 36, 17 is 37.
+    android_sdk: int = 37
+    # Emulated panel width. Every supported device shares the 2772 height and
+    # the 560 density; only the panel width differs.
+    lcd_width: int = 1272
     ports: frozenset = frozenset()
     fixes: frozenset = frozenset()
     hwui_renderer: str = 'skiagl'
@@ -51,7 +57,7 @@ class FirmwareProfile:
     @property
     def userdata_family(self):
         """Userdata template and encryption family name for this device."""
-        return f'coloros-{self.device.lower()}-api37-ranchu-4k'
+        return f'coloros-{self.device.lower()}-api{self.android_sdk}-ranchu-4k'
 
 
 FIRMWARE = {
@@ -75,6 +81,16 @@ FIRMWARE = {
         # stall, and turning off submission with commands on the host GPU stops it.
         emulator_features=('-VulkanQueueSubmitWithCommands',),
         removals=('my_product/overlay/oplus_framework_res_overlay.display.product.24831.apk',)),
+    # OnePlus device, Qualcomm Snapdragon 8 Gen 3 (pineapple), ColorOS 16.
+    '58227d11722b5305e1d18479760fd05e37c7299c16687cc8ed51e43c711980db': FirmwareProfile(
+        device='PJF110', coloros='16.0.5', native=PJF110_PROFILES, wallpapers=(),
+        android_sdk=36, lcd_width=1240,
+        # Bootable baseline only. The camera SDK, launcher and display fixes are
+        # added one at a time as each is verified against this firmware.
+        fixes=frozenset({FIX_ETHERNET_FEATURE, FIX_QTI_PERF_PRELOAD, FIX_RESOLUTION_SWITCH,
+                         FIX_CAMERA_SDK}),
+        hwui_renderer='skiagl',
+        emulator_features=('-VulkanQueueSubmitWithCommands',)),
 }
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an isolated AVD GSI candidate from the official ColorOS 17 OTA."""
+"""Build an isolated AVD GSI candidate from an official ColorOS OTA."""
 import argparse
 import hashlib
 import json
@@ -12,8 +12,9 @@ import subprocess
 import zipfile
 
 from firmware_profile import (FIX_CAMERA_SDK, FIX_ETHERNET_FEATURE, FIX_FLAT_DISPLAY,
-                              FIX_LAUNCHER_UNIRENDER, FIX_QTI_PERF_PRELOAD, PORT_AOD, PORT_CAMERA,
-                              PORT_DOUBLE_TAP, PORT_MTK_GRAPHICS, profile_for_archive)
+                              FIX_LAUNCHER_UNIRENDER, FIX_QTI_PERF_PRELOAD, FIX_RESOLUTION_SWITCH,
+                              PORT_AOD, PORT_CAMERA, PORT_DOUBLE_TAP, PORT_MTK_GRAPHICS,
+                              profile_for_archive)
 from native_patches import PROFILES, apply as apply_native_patch, receipt as native_patch_receipt
 
 
@@ -262,6 +263,29 @@ def virtual_camera_config(data: bytes) -> bytes:
     return json.dumps(config, indent=2).encode('utf-8')
 
 
+def pin_panel_properties(data: bytes, width: int, density: int = 560) -> bytes:
+    """Pin the OEM smart-resolution switch and default density to the emulated panel.
+
+    ColorOS 16 lowers the panel to the device's low-resolution mode and applies
+    its FHD default density at boot, which letterboxes the AVD window and shows
+    an undersized UI. The emulator has a single fixed panel, so both resolution
+    modes and the default density become the panel's own. my_product/build.prop
+    is patched because Euclid loads it after the merged system properties.
+    """
+    panel = f'{width},2772'.encode()
+    for key, value in (
+        (b'ro.oplus.display.wm_size_resolution_switch.support', b'0'),
+        (b'ro.oplus.resolution.low', panel),
+        (b'ro.oplus.resolution.high', panel),
+        (b'ro.oplus.density.fhd_default', str(density).encode()),
+    ):
+        pattern = re.compile(rb'(?m)^' + re.escape(key) + rb'=\S+[ \t]*$')
+        data, count = pattern.subn(key + b'=' + value, data)
+        if count != 1:
+            raise RuntimeError('Unexpected ' + key.decode() + ' entries: ' + str(count))
+    return data
+
+
 def normalize_display_properties(data: bytes, density: int = 560) -> bytes:
     """Keep the framework density in sync with the AVD's physical density.
 
@@ -348,12 +372,16 @@ def main():
     prop = erofs(system, '/system/build.prop')
     product = erofs(partitions / 'product.img', '/etc/build.prop')
 
-    if b'ro.system.build.version.sdk=37' not in prop and b'ro.build.version.sdk=37' not in prop:
-        raise RuntimeError('Unexpected source partition version (expected Android 17 / SDK 37).')
+    if (b'ro.system.build.version.sdk=' + str(firmware.android_sdk).encode() not in prop
+            and b'ro.build.version.sdk=' + str(firmware.android_sdk).encode() not in prop):
+        raise RuntimeError(
+            f'Unexpected source partition version (expected SDK {firmware.android_sdk}).')
 
     # ColorOS Euclid properties from my_manifest and my_product
     manifest_prop = erofs(partitions / 'my_manifest.img', '/build.prop')
     my_product_prop = erofs(partitions / 'my_product.img', '/build.prop')
+    if FIX_RESOLUTION_SWITCH in firmware.fixes:
+        my_product_prop = pin_panel_properties(my_product_prop, firmware.lcd_width)
 
     software_prefixes = (
         b'ro.oplus.', b'ro.coloros.', b'ro.product.vendor.',
@@ -380,7 +408,7 @@ def main():
                     identity.append(line)
     for cid in (
         b'ro.sf.lcd_density=560',
-        b'ro.oplus.resolution.high=1272,2772',
+        f'ro.oplus.resolution.high={firmware.lcd_width},2772'.encode(),
         b'ro.oplus.system.camera.name=com.oplus.camera',
         # Ranchu can provide YUV/JPEG but has no JPEG_R/10-bit stream.  The
         # real device advertises this flag, which makes ColorOS request the
@@ -628,14 +656,21 @@ def main():
     sendext_manifest = sendext_manifest.replace(b'type="device"', b'type="framework"')
     put('system_ext/etc/vintf/manifest/manifest_oplus_sendextcamcmd.xml', sendext_manifest)
 
-    # Patch libhwui.so to fix GLSL ES 1.00 syntax error in OplusCausticShadowEffect
-    hwui_data = erofs(system, '/system/lib64/libhwui.so')
-    put('system/lib64/libhwui.so', apply_native_patch(hwui_data, firmware.native['hwui']),
-        0o644, 'u:object_r:system_lib_file:s0')
+    # Firmware whose libhwui still carries the GLSL ES 1.00 syntax error in
+    # OplusCausticShadowEffect is patched; newer firmware already fixed it.
+    if 'hwui' in firmware.native:
+        hwui_data = erofs(system, '/system/lib64/libhwui.so')
+        put('system/lib64/libhwui.so', apply_native_patch(hwui_data, firmware.native['hwui']),
+            0o644, 'u:object_r:system_lib_file:s0')
     # Only firmware with an audited Bluetooth HDT site is patched.
     if 'bluetooth' in firmware.native:
         put('system/lib64/libbluetooth_jni.so',
             apply_native_patch(erofs(system, '/system/lib64/libbluetooth_jni.so'), firmware.native['bluetooth']),
+            0o644, 'u:object_r:system_lib_file:s0')
+    # Only firmware whose libgui blocks SurfaceView creation on the QTI perf HAL.
+    if 'gui' in firmware.native:
+        put('system/lib64/libgui.so',
+            apply_native_patch(erofs(system, '/system/lib64/libgui.so'), firmware.native['gui']),
             0o644, 'u:object_r:system_lib_file:s0')
     cached = (
         'ksud-aarch64-apple-darwin', 'lkm-aarch64-android15-6.6_kernelsu.ko',
@@ -741,12 +776,12 @@ def main():
     ])
 
     avd_ini = f"""avd.ini.encoding=UTF-8
-avd.ini.displayname=ColorOS 17 Official - Android 17
+avd.ini.displayname=ColorOS {firmware.coloros.split('.')[0]} Official - Android {firmware.coloros.split('.')[0]}
 abi.type=arm64-v8a
 hw.cpu.arch=arm64
 hw.cpu.ncore=4
 hw.ramSize=6144
-hw.lcd.width=1272
+hw.lcd.width={firmware.lcd_width}
 hw.lcd.height=2772
 hw.lcd.density=560
 hw.lcd.depth=32
@@ -779,7 +814,7 @@ fastboot.forceFastBoot=no
 firstboot.saveToLocalSnapshot=no
 tag.id=google_apis_playstore
 tag.display=ColorOS Official
-target=android-37.0
+target=android-{firmware.android_sdk}.0
 kernel.parameters=androidboot.selinux=enforcing
 runtime.network.latency=none
 runtime.network.speed=full
@@ -791,7 +826,7 @@ vm.heapSize=256M
         'coloros': firmware.coloros,
         'device': firmware.device,
         'source': 'official-coloros-ota',
-        'android_api': 37,
+        'android_api': firmware.android_sdk,
         'archive_sha256': archive_sha256,
         'kernel_page_size': 4096,
         'hardware_base_api': 36,

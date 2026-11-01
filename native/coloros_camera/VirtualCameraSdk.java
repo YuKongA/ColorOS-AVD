@@ -44,6 +44,22 @@ public final class VirtualCameraSdk {
     }
 
 
+    /**
+     * Read a capture result key, returning null for vendor tags Ranchu does not
+     * register (for example com.oplus.focus.is.depth.based).
+     */
+    public static Object getOptionalMetadata(CaptureResult result, CaptureResult.Key<?> key) {
+        if (result == null || key == null) {
+            return null;
+        }
+        try {
+            return result.get(key);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+
     /** Remember the request's JPEG_ORIENTATION for the next encode on this thread. */
     public static void beginCapture(Object captureParam) {
         ROTATION.set(orientation(captureParam));

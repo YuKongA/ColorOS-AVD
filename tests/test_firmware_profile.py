@@ -9,8 +9,8 @@ import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
-from firmware_profile import (FIRMWARE, FIX_QTI_PERF_PRELOAD, PORT_CAMERA, PORT_MTK_GRAPHICS,
-                              FirmwareProfile, profile_for_archive)
+from firmware_profile import (FIRMWARE, FIX_QTI_PERF_PRELOAD, FIX_RESOLUTION_SWITCH, PORT_CAMERA,
+                              PORT_MTK_GRAPHICS, FirmwareProfile, profile_for_archive)
 from image_utils import erofs
 from patch_zygote_qti import patch_dex, patch_jar
 from coloros_camera_sdk import patch_camera_sdk_jar
@@ -18,6 +18,7 @@ from coloros_camera_sdk import patch_camera_sdk_jar
 PLK110_PARTITIONS = REPO / 'work/plk110/input/partitions'
 PMX110 = '9b05a00858b964a3fc5891a1873c91ad38aa4786fb729c1a19748214adb868ae'
 PLK110 = 'd2a8b95ad93e2eeb3160ad11c6d76f23203c609cddbd45cb67d53fadd919b7ab'
+PJF110 = '58227d11722b5305e1d18479760fd05e37c7299c16687cc8ed51e43c711980db'
 
 
 class FirmwareProfileTest(unittest.TestCase):
@@ -63,9 +64,19 @@ class FirmwareProfileTest(unittest.TestCase):
             FirmwareProfile(device='x', coloros='1', native={}, wallpapers=(), hwui_renderer='vulkan')
 
     def test_wallpapers_are_video_files(self):
+        # Some firmware ships only static wallpapers, so the list may be empty.
         for profile in FIRMWARE.values():
-            self.assertTrue(profile.wallpapers)
             self.assertTrue(all(name.endswith('.mp4') for name in profile.wallpapers))
+
+    def test_pjf110_runs_on_its_native_panel(self):
+        profile = profile_for_archive(PJF110)
+        self.assertEqual((profile.device, profile.android_sdk, profile.lcd_width), ('PJF110', 36, 1240))
+        self.assertIn(FIX_RESOLUTION_SWITCH, profile.fixes)
+
+    def test_older_firmwares_keep_the_avd_template_panel(self):
+        for profile in (profile_for_archive(PMX110), profile_for_archive(PLK110)):
+            self.assertEqual((profile.android_sdk, profile.lcd_width), (37, 1272))
+            self.assertNotIn(FIX_RESOLUTION_SWITCH, profile.fixes)
 
 
 class CameraSdkPatchTest(unittest.TestCase):
